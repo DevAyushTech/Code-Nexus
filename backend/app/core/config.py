@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     blockchain_tx_timeout: int = Field(default=120, gt=0)
     blockchain_gas_limit: int = Field(default=200_000, gt=0)
     blockchain_account_address: str | None = None
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or "://" not in normalized:
+            raise ValueError("DATABASE_URL must be a non-empty SQLAlchemy URL.")
+        if normalized.startswith("sqlite://") or normalized.startswith(("postgresql://", "postgresql+psycopg://")):
+            return normalized
+        raise ValueError("DATABASE_URL must use SQLite or PostgreSQL.")
 
     @model_validator(mode="after")
     def validate_blockchain_configuration(self) -> "Settings":

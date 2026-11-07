@@ -9,7 +9,7 @@
 Nexus is a strong hackathon MVP foundation. The deterministic analysis pipeline, SSRF protections, TLS verification, provider isolation, local persistence, Sepolia adapter, and historical commitment verification are implemented and covered by focused tests. The existing suite currently reports:
 
 ```text
-116 passed, 1 warning
+120 passed, 1 warning
 ```
 
 The MVP is not yet complete for frontend handover because:
@@ -61,7 +61,7 @@ No new SaaS features, multi-tenancy, complex RBAC, password reset, job infrastru
 | OpenAPI documentation | PARTIALLY_IMPLEMENTED | CRITICAL | Schemas appear in OpenAPI, but API-key security metadata is absent. |
 | Rate limiting | IMPLEMENTED | MEDIUM | Fixed-window, per-client-IP in-process limiter covers submission routes and is tested. It is intentionally single-process only. |
 | Logging/error handling | PARTIALLY_IMPLEMENTED | HIGH | Generic 500 handling and sanitized blockchain errors exist; there are no request IDs, metrics, structured audit events, or comprehensive route error schemas. |
-| Docker/deployment readiness | PARTIALLY_IMPLEMENTED | HIGH | Compose starts API/PostgreSQL and local SQLite guidance exists. Static development credentials, no DB health check, and stale deployment documentation remain. |
+| Docker/deployment readiness | PARTIALLY_IMPLEMENTED | HIGH | Dockerfile now includes Alembic and starts `app.main:app`; `.dockerignore` excludes secrets/local databases; Compose uses external credentials, a PostgreSQL healthcheck, and healthy dependency gating. Docker execution remains unavailable in this environment. |
 | Automated backend tests | IMPLEMENTED | HIGH | 92 tests pass with one existing deprecation warning. Live provider/PostgreSQL integration coverage is absent. |
 | Frontend integration documentation | PARTIALLY_IMPLEMENTED | CRITICAL | Root integration guide was updated substantially, but `backend/docs/FRONTEND_INTEGRATION.md`, `backend/docs/API_DOCUMENTATION.md`, and README contain stale auth/deployment claims. |
 
@@ -315,6 +315,32 @@ Nexus is complete for hackathon frontend handover when all of the following are 
 4. Add the protected-route/OpenAPI contract tests.
 
 This is the smallest high-value phase: it closes the current handover blocker without touching application data, migrations, smart contracts, or blockchain state.
+
+## Phase 6 verified results — Deployment and Runtime Reliability
+
+Deployment hardening was completed without changing `.env`, databases, migrations, blockchain state, or frontend files:
+
+- Added `.dockerignore` rules excluding `.env` files, virtual environments, local SQLite files, tests, and deployment artifacts.
+- Dockerfile copies Alembic configuration/revisions and still starts `uvicorn app.main:app` on port 8000.
+- Compose now requires external `POSTGRES_PASSWORD` and `API_AUTH_KEY`, uses environment-substituted PostgreSQL settings, adds `pg_isready` health checks, and waits for a healthy database.
+- Added `DATABASE_URL` validation for supported SQLite/PostgreSQL SQLAlchemy URLs.
+- Added an `X-Request-ID` response correlation header and sanitized request ID in unexpected-error responses.
+- Readiness continues to execute `SELECT 1`; database failures return a sanitized `503`.
+- Migrations remain manual and non-destructive; fresh Compose setup instructions use `python -m alembic upgrade head` only against the disposable Compose database.
+- README documents backup/restore, migration safety, Compose secrets, readiness semantics, and single-process rate-limit limitations.
+
+Validation:
+
+```text
+Phase 6 focused runtime/deployment tests: 6 passed, 1 warning
+Full backend suite: 120 passed, 1 warning
+git diff --check: passed
+Docker availability: NOT AVAILABLE (docker command not found)
+Docker build/compose execution: NOT VERIFIED
+PostgreSQL integration: NOT VERIFIED (no disposable PostgreSQL instance available)
+```
+
+Static Docker checks verified the startup command, Alembic inclusion, secret exclusion, external credential substitution, healthcheck, and healthy dependency gate. No live container, PostgreSQL, provider, or blockchain validation was claimed.
 
 ## Phase 5 verified results — Blockchain Reliability and Verification
 

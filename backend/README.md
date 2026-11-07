@@ -86,8 +86,20 @@ Do not overwrite the existing database during tests. PostgreSQL backups must use
 ## Docker
 
 ```powershell
+${env:POSTGRES_PASSWORD} = "<set outside source control>"
+${env:API_AUTH_KEY} = "<set outside source control>"
 docker compose up --build
 ```
+
+Compose requires `POSTGRES_PASSWORD` and `API_AUTH_KEY` to be supplied through the shell or an external secret mechanism. It does not read or copy the backend `.env` into the image. The API waits for PostgreSQL health, but migrations are intentionally not run automatically. For a fresh disposable Compose database, run:
+
+```powershell
+docker compose run --rm api python -m alembic upgrade head
+```
+
+Run that command only against the disposable Compose volume. Never point it at the existing local SQLite database or a production database. `/health` is a process liveness check; `/health/ready` executes `SELECT 1` against the configured database and returns `503` when connectivity fails. Responses include an `X-Request-ID` correlation header; the same identifier is included in sanitized unexpected-error bodies.
+
+The in-process rate limiter is suitable for the single-worker hackathon demo only. Multiple workers or instances do not share counters; use one worker or an external gateway limiter if the deployment is scaled.
 
 The URL analyzer blocks localhost, private, loopback, link-local, reserved, metadata, credential-bearing, and non-standard-port URLs. It does not execute page scripts or perform active exploitation.
 
