@@ -1,0 +1,202 @@
+from pathlib import Path
+import uuid
+from types import SimpleNamespace
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+
+from app.api.v1 import router
+from app.core.config import settings
+from app.core.security import limiter
+from app.database.session import Base, get_db
+from app.main import app
+from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, TLSAnalysis, URLAnalysis
+from app.services import website
+from app.services.blockchain import VerificationResult
+from app.services.ssrf import UnsafeURL, resolve_public_url
+from app.services.threat_intel import check_urlhaus
+
+
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    def override_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(router, "check_urlhaus", lambda url: {"source": "URLhaus", "status": "completed", "match": False})
+    monkeypatch.setattr(router, "inspect_tls", lambda host: {"status": "valid", "expires_at": None})
+    monkeypatch.setattr(router, "inspect_website", lambda url: {"source": "passive_website_inspection", "status": "completed"})
+    yield TestClient(app), session_factory
+    app.dependency_overrides.clear()
+    engine.dispose()
+
+
+def test_url_and_message_reports_persist(client):
+    test_client, session_factory = client
+    url_response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com/login"})
+    message_response = test_client.post("/api/v1/analyze/message", json={"content": "Urgent payment request: send your OTP."})
+    assert url_response.status_code == 201
+    assert message_response.status_code == 201
+    with session_factory() as db:
+        assert db.scalar(select(AnalysisReport).where(AnalysisReport.kind == "url"))
+        assert db.scalar(select(URLAnalysis))
+        assert db.scalar(select(TLSAnalysis))
+        assert db.scalar(select(ThreatIntelligenceMatch))
+        assert db.scalar(select(SecurityFinding))
+        assert db.scalar(select(ScamAnalysis))
+        assert db.scalar(select(ThreatIndicator))
+
+
+def test_report_can_be_retrieved(client):
+    test_client, _ = client
+    created = test_client.post("/api/v1/analyze/message", json={"content": "Please verify your password."})
+    fetched = test_client.get(f"/api/v1/reports/{created.json()['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["target"] == "[message redacted]"
+
+
+def test_threat_report_and_blockchain_commitment_persist(client):
+    test_client, session_factory = client
+    analysis = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    report = test_client.post("/api/v1/threat-reports", json={"indicator": "https://example.com", "report_type": "url", "description": "test"})
+    commitment = test_client.post("/api/v1/blockchain/register", json={"report_id": analysis.json()["id"]})
+    verification = test_client.get(f"/api/v1/blockchain/verify/{analysis.json()['id']}")
+    assert report.status_code == 201
+    assert commitment.json()["status"] == "mock"
+    assert verification.json()["verified"] is False
+    with session_factory() as db:
+        assert db.scalar(select(BlockchainRecord))
+
+
+def test_sepolia_verification_rejects_stale_local_commitment(client, monkeypatch):
+    test_client, session_factory = client
+    analysis = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    report_id = uuid.UUID(analysis.json()["id"])
+    with session_factory() as db:
+        db.add(BlockchainRecord(
+            report_id=report_id,
+            report_hash="f" * 64,
+            status="confirmed",
+            chain_id=11155111,
+            contract_address="0x" + "1" * 40,
+        ))
+        db.commit()
+
+    adapter = SimpleNamespace(verify_commitment=lambda expected_hash, tx_hash: VerificationResult(
+        "verified", True, 11155111, "0x" + "1" * 40, True, "0x" + "2" * 40, 123, 3, 1, 10
+    ))
+    monkeypatch.setattr(router, "get_blockchain_service", lambda: SimpleNamespace(
+        config=SimpleNamespace(blockchain_mode="sepolia"),
+        adapter=adapter,
+    ))
+    response = test_client.get(f"/api/v1/blockchain/verify/{report_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "mismatch"
+    assert response.json()["verified"] is False
+
+
+def test_rate_limit_returns_429(client, monkeypatch):
+    test_client, _ = client
+    limiter._events.clear()
+    monkeypatch.setattr(settings, "message_analysis_rate_limit", 1)
+    first = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    second = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    assert first.status_code == 201
+    assert second.status_code == 429
+
+
+def test_redirect_to_private_is_rejected(monkeypatch):
+    class RedirectResponse:
+        status = 302
+        def getheader(self, name):
+            return "http://127.0.0.1/private"
+        def close(self):
+            pass
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(website, "open_pinned_response", lambda url, timeout: (_ for _ in ()).throw(UnsafeURL("private redirect")))
+    result = website.inspect_website("https://example.com")
+    assert result["status"] == "unavailable"
+
+
+def test_oversized_response_stops_without_response_content(monkeypatch):
+    class Response:
+        status = 200
+        def getheaders(self):
+            return []
+        def read(self, size):
+            return b"x" * size
+        def close(self):
+            pass
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(website.settings, "max_response_bytes", 10)
+    monkeypatch.setattr(website, "open_pinned_response", lambda url, timeout: (SimpleNamespace(address="203.0.113.1"), Response(), Connection()))
+    result = website.inspect_website("https://example.com")
+    assert result["status"] == "unavailable"
+    assert result["error"] == "UnsafeURL"
+
+
+def test_dns_resolution_must_be_public(monkeypatch):
+    monkeypatch.setattr("app.services.ssrf.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("10.0.0.1", 443))])
+    with pytest.raises(UnsafeURL):
+        resolve_public_url("https://rebind.example")
+
+
+def test_pinned_resolution_is_the_socket_destination(monkeypatch):
+    seen = []
+    monkeypatch.setattr("app.services.ssrf.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))])
+    monkeypatch.setattr("app.services.ssrf.socket.create_connection", lambda address, timeout: seen.append(address) or (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(OSError):
+        from app.services.ssrf import open_pinned_response
+        open_pinned_response("https://example.com", 1)
+    assert seen == [("93.184.216.34", 443)]
+
+
+def test_authenticated_routes_require_api_key(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    response = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    assert response.status_code == 401
+    response = test_client.post("/api/v1/analyze/message", headers={"X-API-Key": "test-key"}, json={"content": "hello"})
+    assert response.status_code == 201
+
+
+def test_cors_allows_configured_frontend_and_rejects_other_origins(client):
+    test_client, _ = client
+    allowed = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"})
+    denied = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "https://untrusted.example", "Access-Control-Request-Method": "GET"})
+    assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert denied.headers.get("access-control-allow-origin") is None
+
+
+def test_urlhaus_requires_validated_evidence(monkeypatch):
+    class Response:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"query_status": "ok", "url": "https://other.example/", "threat": "malware", "url_status": "online"}
+
+    monkeypatch.setattr("app.services.threat_intel.settings.urlhaus_auth_key", SecretStr("secret"))
+    monkeypatch.setattr("app.services.threat_intel.httpx.post", lambda *args, **kwargs: Response())
+    result = check_urlhaus("https://example.com/")
+    assert result["status"] == "completed"
+    assert result["match"] is False

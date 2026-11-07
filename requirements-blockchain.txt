@@ -1,0 +1,2 @@
+# Optional Sepolia adapter dependency. Install this in a Python 3.11 deployment.
+web3==7.6.1
