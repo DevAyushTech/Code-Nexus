@@ -31,6 +31,8 @@ from app.models.models import (
 REPORT_ID = uuid.UUID("14c7f538-f2d0-4320-865d-15b2d2631704")
 EXPECTED_REPORT_HASH = "215bc8bd660bc72af22e6e7b595479f291058d8b3b1c8a93856500d8f956effb"
 EXPECTED_TX_HASH = "0x9ceb8cd0e08c082ab0ee639aab5c6f4cdb39c035aa9340328be3e15912e9789f"
+EXPECTED_CHAIN_ID = 11155111
+EXPECTED_CONTRACT_ADDRESS = "0x0477964F49Ce37516dBFfFA3a16c8dDE73D58Bf4"
 CHILD_MODELS = (
     URLAnalysis,
     TLSAnalysis,
@@ -102,6 +104,10 @@ def load_source_plan(source: Path) -> ImportPlan:
                 raise ImportError("Source blockchain report hash does not match the expected historical hash.")
             if blockchain.tx_hash != EXPECTED_TX_HASH:
                 raise ImportError("Source transaction hash does not match the expected historical transaction.")
+            if blockchain.chain_id != EXPECTED_CHAIN_ID:
+                raise ImportError("Source blockchain record does not use Ethereum Sepolia.")
+            if blockchain.contract_address != EXPECTED_CONTRACT_ADDRESS:
+                raise ImportError("Source blockchain record does not reference the expected contract.")
 
             children: list[Any] = []
             for model in CHILD_MODELS:
@@ -193,8 +199,12 @@ def main() -> int:
     except ImportError as exc:
         print(f"Import aborted: {exc}", file=sys.stderr)
         return 1
-    except Exception:
-        print("Import aborted due to a database error; no changes were committed.", file=sys.stderr)
+    except Exception as exc:
+        message = str(exc).replace(target_url, "<DATABASE_URL_REDACTED>")
+        print(
+            f"Import aborted due to {type(exc).__name__}: {message}",
+            file=sys.stderr,
+        )
         return 1
     action = "would be inserted" if not args.apply else "inserted"
     print(f"Historical report preflight passed; {inserted} record(s) {action}.")
