@@ -48,3 +48,21 @@ def test_docker_runtime_files_are_safe():
     assert "condition: service_healthy" in compose
     assert "API_AUTH_KEY: ${API_AUTH_KEY:?" in compose
     assert "password: nexus" not in compose.lower()
+
+
+def test_production_image_includes_web3_and_runtime_abi():
+    root = Path(__file__).parents[1]
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    blockchain_requirements = (root / "requirements-blockchain.txt").read_text(encoding="utf-8")
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    abi_path = root / "contracts" / "abi" / "ThreatRegistry.v1.json"
+
+    assert "web3==7.6.1" in requirements
+    assert "web3==" not in blockchain_requirements
+    assert "-r requirements.txt" in blockchain_requirements
+    assert "COPY contracts/abi contracts/abi" in dockerfile
+    assert abi_path.is_file()
+
+    from web3 import Web3
+
+    assert Web3 is not None
