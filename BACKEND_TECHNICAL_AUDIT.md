@@ -24,11 +24,12 @@ All routes are mounted under `/api/v1` except `/health`.
 | Method | Endpoint | Purpose | Request | Response | Auth |
 |---|---|---|---|---|---|
 | GET | `/health` | Process health | None | `{"status":"ok","service":"..."}` | None |
+| GET | `/health/ready` | Database readiness | None | `{"status":"ready","database":"ok"}` | None |
 | POST | `/api/v1/analyze/url` | Analyze a public URL and persist a report | `URLAnalyzeRequest`: `url: HttpUrl` | `AnalysisResponse` | Optional `X-API-Key`; URL rate limit |
 | POST | `/api/v1/analyze/message` | Deterministic scam-message analysis plus optional AI | `MessageAnalyzeRequest`: 1–50,000 chars | `AnalysisResponse` | Optional `X-API-Key`; message rate limit |
-| GET | `/api/v1/reports/{report_id}` | Retrieve an analysis report | UUID path parameter | `AnalysisResponse` | None |
-| GET | `/api/v1/dashboard/summary` | Aggregate report counts by classification | None | `{"total": int, "classifications": object}` | None |
-| GET | `/api/v1/threats` | Paginated threat-report feed | `skip >= 0`, `1 <= limit <= 100` | `{"items": [...], "skip": int, "limit": int}` | None |
+| GET | `/api/v1/reports/{report_id}` | Retrieve an analysis report | UUID path parameter | `AnalysisResponse` | Optional `X-API-Key` |
+| GET | `/api/v1/dashboard/summary` | Aggregate report counts by classification | None | `{"total": int, "total_reports": int, "classifications": object}` | Optional `X-API-Key` |
+| GET | `/api/v1/threats` | Paginated threat-report feed | `skip >= 0`, `1 <= limit <= 100` | `{"items": [...], "skip": int, "limit": int}` | Optional `X-API-Key` |
 | POST | `/api/v1/threat-reports` | Create a user threat report | `ThreatReportCreate`: indicator 1–2048 chars, description 1–10,000 chars, fixed report type | `ThreatReportResponse` | Optional `X-API-Key`; threat-report rate limit |
 | GET | `/api/v1/threat-reports/{report_id}` | Retrieve a threat report | UUID path parameter | `ThreatReportResponse` | None |
 | POST | `/api/v1/blockchain/register` | Register an analysis commitment locally or on Sepolia | `{"report_id": UUID}` | Mode-specific dictionary | None |
@@ -132,4 +133,3 @@ Result:
 ```
 
 The warning is the existing `pytest-asyncio` loop-scope deprecation warning.
-

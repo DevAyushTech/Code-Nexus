@@ -15,7 +15,7 @@ from app.database.session import Base, get_db
 from app.main import app
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, TLSAnalysis, URLAnalysis
 from app.services import website
-from app.services.blockchain import VerificationResult
+from app.services.blockchain import BlockchainRPCError, RegistrationResult, VerificationResult
 from app.services.ssrf import UnsafeURL, resolve_public_url
 from app.services.threat_intel import check_urlhaus
 
@@ -64,6 +64,71 @@ def test_report_can_be_retrieved(client):
     fetched = test_client.get(f"/api/v1/reports/{created.json()['id']}")
     assert fetched.status_code == 200
     assert fetched.json()["target"] == "[message redacted]"
+
+
+def test_new_url_reports_redact_query_values(client):
+    test_client, session_factory = client
+    response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com/login?token=private-value"})
+    assert response.status_code == 201
+    assert "private-value" not in response.json()["target"]
+    with session_factory() as db:
+        stored = db.scalar(select(URLAnalysis))
+        assert stored is not None
+        assert stored.normalized_url == "https://example.com/login"
+
+
+def test_sensitive_read_routes_use_demo_api_key(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    assert test_client.get("/api/v1/dashboard/summary").status_code == 401
+    assert test_client.get("/api/v1/threats").status_code == 401
+    assert test_client.get("/api/v1/dashboard/summary", headers={"X-API-Key": "test-key"}).status_code == 200
+
+
+def test_readiness_reports_database_status(client):
+    test_client, _ = client
+    response = test_client.get("/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "database": "ok"}
+
+
+def test_blockchain_status_and_errors_are_safe(client, monkeypatch):
+    test_client, session_factory = client
+    analysis = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    report_id = uuid.UUID(analysis.json()["id"])
+    with session_factory() as db:
+        db.add(BlockchainRecord(
+            report_id=report_id,
+            report_hash="f" * 64,
+            tx_hash="0x" + "1" * 64,
+            status="submitted",
+            chain_id=11155111,
+            contract_address="0x" + "2" * 40,
+        ))
+        db.commit()
+
+    monkeypatch.setattr(router, "get_blockchain_service", lambda: SimpleNamespace(
+        config=SimpleNamespace(blockchain_mode="sepolia"),
+        adapter=SimpleNamespace(inspect_transaction=lambda tx_hash, submitted_at: RegistrationResult(
+            "reverted", tx_hash, 11155111, "0x" + "2" * 40, block_number=12, error_code="transaction_reverted",
+        )),
+    ))
+    response = test_client.post("/api/v1/blockchain/register", json={"report_id": str(report_id)})
+    assert response.status_code == 200
+    assert response.json()["on_chain"] is False
+    with session_factory() as db:
+        record = db.scalar(select(BlockchainRecord))
+        assert record is not None
+        assert record.error_message == "Blockchain transaction was reverted."
+
+    monkeypatch.setattr(router, "get_blockchain_service", lambda: SimpleNamespace(
+        config=SimpleNamespace(blockchain_mode="sepolia", blockchain_chain_id=11155111, blockchain_contract_address="0x" + "2" * 40),
+        adapter=SimpleNamespace(register_hash=lambda digest, on_submitted: (_ for _ in ()).throw(BlockchainRPCError("private RPC detail"))),
+    ))
+    fresh_analysis = test_client.post("/api/v1/analyze/message", json={"content": "another"})
+    failed = test_client.post("/api/v1/blockchain/register", json={"report_id": fresh_analysis.json()["id"]})
+    assert failed.status_code == 502
+    assert failed.json()["detail"] == "Blockchain network is unavailable."
 
 
 def test_threat_report_and_blockchain_commitment_persist(client):
@@ -182,8 +247,17 @@ def test_authenticated_routes_require_api_key(client, monkeypatch):
 def test_cors_allows_configured_frontend_and_rejects_other_origins(client):
     test_client, _ = client
     allowed = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"})
+    api_key_allowed = test_client.options(
+        "/api/v1/dashboard/summary",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "X-API-Key",
+        },
+    )
     denied = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "https://untrusted.example", "Access-Control-Request-Method": "GET"})
     assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert "x-api-key" in api_key_allowed.headers.get("access-control-allow-headers", "").lower()
     assert denied.headers.get("access-control-allow-origin") is None
 
 

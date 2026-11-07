@@ -46,3 +46,11 @@ def message_analysis_guard(request: Request) -> None:
 
 def threat_report_guard(request: Request) -> None:
     _guard(request, "threat-report", settings.threat_report_rate_limit)
+
+
+def api_key_guard(request: Request) -> None:
+    if not settings.api_auth_key:
+        return
+    supplied = request.headers.get("X-API-Key", "")
+    if not hmac.compare_digest(supplied, settings.api_auth_key.get_secret_value()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Valid API key required.")

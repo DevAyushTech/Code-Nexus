@@ -14,9 +14,9 @@ The primary risks are exposure and operational hardening rather than an obvious 
 | Severity | Finding | Evidence | Impact | Recommendation |
 |---|---|---|---|---|
 | HIGH | URL analysis can return and persist the normalized URL, including query values | `url_analysis.py`; `URLAnalysis.normalized_url`; report response | Tokens or tracking secrets in submitted query strings can be stored and exposed to public GET report clients | Redact query values before persistence/response, or store only scheme/host/path plus hashed query metadata |
-| HIGH | Read routes and blockchain mutation route are unauthenticated when `API_AUTH_KEY` is unset | `core/security.py`; only three POST routes use guards | Anyone who can reach the API can read reports/feed and attempt blockchain registration | Require authentication in deployed environments and add route-level authorization |
+| HIGH | Sensitive routes depend on the single demo `API_AUTH_KEY` being configured | `core/security.py`; sensitive routes now use `api_key_guard` | If the demo key is absent, sensitive routes remain intentionally open for local development | Configure a strong demo/admin `API_AUTH_KEY` before handover; fail closed at the deployment boundary if it is missing |
 | MEDIUM | Rate limiting is in-memory and process-local | `core/security.py` | Bypass across workers/instances; restart resets limits | Use a shared limiter/gateway for production |
-| MEDIUM | Health endpoint does not test database or provider readiness | `main.py` | Load balancers can route traffic to an instance unable to persist or call dependencies | Add separate liveness/readiness checks with bounded probes |
+| MEDIUM | Readiness checks only the database | `main.py` | External providers and Sepolia may still be unavailable even when the API is ready to accept requests | Use `/health/ready` for database readiness and retain provider/blockchain checks as explicit demo smoke tests |
 | MEDIUM | Blockchain lock and nonce coordination are process-local | `router.py`, `blockchain.py` | Multiple workers can race on the same account/nonce | Use a durable queue/nonce allocator or single transaction worker |
 | MEDIUM | Error detail strings from blockchain verification/registration are returned to clients | `router.py` | Provider/internal topology or implementation details may leak | Return stable public error codes; log internal detail server-side |
 | LOW | CORS defaults are development-oriented and configuration is permissive if misconfigured | `main.py`, `.env.example` | Incorrect origins could expose browser-accessible API responses | Use explicit production origins and integration tests |
@@ -86,4 +86,3 @@ DNS can change after initial resolution; the pinned connection reduces rebinding
 - Readiness failure tests.
 - Concurrent blockchain registration with multiple workers.
 - PostgreSQL security/integration tests.
-

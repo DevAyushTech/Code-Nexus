@@ -9,6 +9,7 @@ http://localhost:8000
 ```
 
 Interactive OpenAPI documentation is available at `/docs`; the OpenAPI schema is available at `/openapi.json`.
+`GET /health/ready` checks database readiness and returns `503` when the database is unavailable.
 
 ## Authentication
 
@@ -23,6 +24,12 @@ It is required on:
 - `POST /api/v1/analyze/url`
 - `POST /api/v1/analyze/message`
 - `POST /api/v1/threat-reports`
+- `GET /api/v1/reports/{report_id}`
+- `GET /api/v1/dashboard/summary`
+- `GET /api/v1/threats`
+- `GET /api/v1/threat-reports/{report_id}`
+- `POST /api/v1/blockchain/register`
+- `GET /api/v1/blockchain/verify/{report_id}`
 
 The current backend does not require authentication on GET routes or blockchain routes. Treat that as a deployment security gap, not as a frontend authorization guarantee.
 
@@ -86,7 +93,7 @@ Returns an `AnalysisResponse`. Message targets remain redacted. Missing UUIDs re
 ### `GET /api/v1/dashboard/summary`
 
 ```json
-{"total":2,"classifications":{"SUSPICIOUS":1,"INCONCLUSIVE":1}}
+{"total":2,"total_reports":2,"classifications":{"SUSPICIOUS":1,"INCONCLUSIVE":1}}
 ```
 
 ### `GET /api/v1/threats?skip=0&limit=50`
@@ -195,4 +202,3 @@ The backend allows configured `CORS_ORIGINS`, `GET`/`POST`, and `Content-Type`/`
 - Do not expose transaction signing controls in the frontend; signing is backend-controlled.
 - Avoid rendering provider evidence as trusted HTML.
 - The backend currently may return URL targets containing query strings; treat them as sensitive and avoid displaying them without redaction.
-

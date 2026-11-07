@@ -2,6 +2,7 @@ import hashlib
 import threading
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -9,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, ThreatReport, TLSAnalysis, URLAnalysis
-from app.core.security import message_analysis_guard, threat_report_guard, url_analysis_guard
-from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, FindingResponse, MessageAnalyzeRequest, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
+from app.core.security import api_key_guard, message_analysis_guard, threat_report_guard, url_analysis_guard
+from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, DashboardSummaryResponse, FindingResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
 from app.services.ai import explain
 from app.services.message_analysis import analyze_message
 from app.services.threat_intel import check_urlhaus
@@ -25,6 +26,30 @@ api_router = APIRouter()
 _blockchain_registration_lock = threading.Lock()
 
 
+def _safe_url(url: str) -> str:
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _public_blockchain_error(exc: Exception | str) -> str:
+    if isinstance(exc, str):
+        return {
+            "transaction_reverted": "Blockchain transaction was reverted.",
+            "receipt_timeout": "Blockchain receipt confirmation timed out.",
+            "receipt_unavailable": "Blockchain receipt is not yet available.",
+            "insufficient_confirmations": "Blockchain confirmation depth is insufficient.",
+        }.get(exc, "Blockchain operation failed.")
+    if isinstance(exc, BlockchainConfigurationError):
+        return "Blockchain configuration is invalid."
+    if isinstance(exc, BlockchainDependencyError):
+        return "Blockchain service is unavailable."
+    if isinstance(exc, BlockchainRPCError):
+        return "Blockchain network is unavailable."
+    if isinstance(exc, BlockchainTransactionError):
+        return "Blockchain transaction failed."
+    return "Blockchain operation failed."
+
+
 def canonical_report_hash(report: AnalysisReport) -> str:
     return hashlib.sha256(f"{report.id}:{report.target_hash}:{report.classification}:{report.risk_score}".encode()).hexdigest()
 
@@ -36,7 +61,8 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
     for finding in result["findings"]:
         db.add(SecurityFinding(report_id=report.id, name=finding.name, severity=finding.severity, evidence=finding.evidence, source=finding.source, explanation=finding.explanation, recommendation=finding.recommendation))
     if kind == "url":
-        db.add(URLAnalysis(report_id=report.id, normalized_url=result["normalized_url"], domain=result["domain"], data={"scheme": result["scheme"], "query_keys": result["query_keys"]}))
+        safe_target = _safe_url(result["normalized_url"])
+        db.add(URLAnalysis(report_id=report.id, normalized_url=safe_target, domain=result["domain"], data={"scheme": result["scheme"], "query_keys": result["query_keys"]}))
     for integration in integrations or []:
         if integration.get("source") in {"URLhaus", "Google Safe Browsing"}:
             db.add(ThreatIntelligenceMatch(report_id=report.id, source=integration["source"], status=integration.get("status", "unavailable"), data=integration))
@@ -55,7 +81,8 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
     except Exception:
         db.rollback()
         raise
-    return AnalysisResponse(id=report.id, kind=kind, target=result["target"], classification=result["classification"], risk_score=result["risk_score"], findings=[FindingResponse.model_validate(f) for f in result["findings"]], integrations=integrations or [], evidence_quality="mixed" if integrations else "deterministic", ai_analysis=ai_analysis)
+    target = _safe_url(result["target"]) if kind == "url" else result["target"]
+    return AnalysisResponse(id=report.id, kind=kind, target=target, classification=result["classification"], risk_score=result["risk_score"], findings=[FindingResponse.model_validate(f) for f in result["findings"]], integrations=integrations or [], evidence_quality="mixed" if integrations else "deterministic", ai_analysis=ai_analysis)
 
 
 @api_router.post("/analyze/url", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(url_analysis_guard)])
@@ -79,7 +106,7 @@ def analyze_message_endpoint(payload: MessageAnalyzeRequest, db: Session = Depen
     return persist_analysis(db, "message", result, [ai_result], ai_analysis)
 
 
-@api_router.get("/reports/{report_id}", response_model=AnalysisResponse)
+@api_router.get("/reports/{report_id}", response_model=AnalysisResponse, dependencies=[Depends(api_key_guard)])
 def get_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> AnalysisResponse:
     report = db.get(AnalysisReport, report_id)
     if not report:
@@ -89,18 +116,22 @@ def get_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> AnalysisR
         target = report.url_analysis.normalized_url
     scam = db.scalar(select(ScamAnalysis).where(ScamAnalysis.report_id == report.id))
     ai_analysis = scam.data.get("ai_analysis") if scam else None
-    return AnalysisResponse(id=report.id, kind=report.kind, target=target, classification=report.classification, risk_score=report.risk_score, findings=[FindingResponse.model_validate(f) for f in report.findings], ai_analysis=ai_analysis)
+    integrations = [match.data for match in db.scalars(select(ThreatIntelligenceMatch).where(ThreatIntelligenceMatch.report_id == report.id)).all()]
+    tls = db.scalar(select(TLSAnalysis).where(TLSAnalysis.report_id == report.id))
+    if tls:
+        integrations.append(tls.data)
+    return AnalysisResponse(id=report.id, kind=report.kind, target=target, classification=report.classification, risk_score=report.risk_score, findings=[FindingResponse.model_validate(f) for f in report.findings], integrations=integrations, evidence_quality="mixed" if integrations else "deterministic", ai_analysis=ai_analysis)
 
 
-@api_router.get("/dashboard/summary")
-def dashboard_summary(db: Session = Depends(get_db)) -> dict:
+@api_router.get("/dashboard/summary", response_model=DashboardSummaryResponse, dependencies=[Depends(api_key_guard)])
+def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryResponse:
     total = db.scalar(select(func.count(AnalysisReport.id))) or 0
     classifications = dict(db.execute(select(AnalysisReport.classification, func.count()).group_by(AnalysisReport.classification)).all())
-    return {"total_reports": total, "classifications": classifications}
+    return {"total": total, "total_reports": total, "classifications": classifications}
 
 
-@api_router.get("/threats")
-def list_threats(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db)) -> dict:
+@api_router.get("/threats", response_model=ThreatFeedResponse, dependencies=[Depends(api_key_guard)])
+def list_threats(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db)) -> ThreatFeedResponse:
     items = db.scalars(select(ThreatReport).order_by(ThreatReport.created_at.desc()).offset(skip).limit(limit)).all()
     return {"items": [ThreatReportResponse.model_validate(item) for item in items], "skip": skip, "limit": limit}
 
@@ -114,7 +145,7 @@ def create_threat_report(payload: ThreatReportCreate, db: Session = Depends(get_
     return item
 
 
-@api_router.get("/threat-reports/{report_id}", response_model=ThreatReportResponse)
+@api_router.get("/threat-reports/{report_id}", response_model=ThreatReportResponse, dependencies=[Depends(api_key_guard)])
 def get_threat_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> ThreatReportResponse:
     item = db.get(ThreatReport, report_id)
     if not item:
@@ -122,7 +153,7 @@ def get_threat_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> Th
     return item
 
 
-@api_router.post("/blockchain/register")
+@api_router.post("/blockchain/register", dependencies=[Depends(api_key_guard)])
 def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depends(get_db)) -> dict:
     report = db.get(AnalysisReport, payload.report_id)
     if not report:
@@ -134,7 +165,7 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
         return {
             "status": existing.status,
             "mode": "sepolia" if existing.chain_id else "mock",
-            "on_chain": bool(existing.chain_id),
+            "on_chain": bool(existing.tx_hash and existing.block_number and existing.status in {"confirming", "confirmed"}),
             "report_id": report.id,
             "report_hash": existing.report_hash,
             "tx_hash": existing.tx_hash,
@@ -148,16 +179,17 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
         with _blockchain_registration_lock:
             existing = db.scalar(select(BlockchainRecord).where(BlockchainRecord.report_id == report.id))
             if existing and existing.tx_hash:
+                record = existing
                 try:
                     result = blockchain.adapter.inspect_transaction(existing.tx_hash, existing.submitted_at)
                 except (BlockchainConfigurationError, BlockchainDependencyError, BlockchainRPCError) as exc:
-                    raise HTTPException(status_code=503, detail=str(exc)) from exc
+                    raise HTTPException(status_code=503, detail=_public_blockchain_error(exc)) from exc
                 existing.status = transition_state(existing.status, result.status)
                 existing.block_number = result.block_number or existing.block_number
                 existing.gas_used = result.gas_used or existing.gas_used
                 existing.confirmations = result.confirmations
                 existing.confirmed_at = result.confirmed_at
-                existing.error_message = result.error_message
+                existing.error_message = _public_blockchain_error(result.error_code) if result.error_code else None
                 existing.error_code = result.error_code
                 db.commit()
             else:
@@ -196,21 +228,21 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
                 except (BlockchainConfigurationError, BlockchainDependencyError) as exc:
                     record.status = transition_state(record.status, "failed")
                     record.error_code = "configuration_error"
-                    record.error_message = str(exc)
+                    record.error_message = _public_blockchain_error(exc)
                     db.commit()
-                    raise HTTPException(status_code=503, detail=str(exc)) from exc
+                    raise HTTPException(status_code=503, detail=_public_blockchain_error(exc)) from exc
                 except BlockchainRPCError as exc:
                     record.status = transition_state(record.status, "failed")
                     record.error_code = "rpc_error"
-                    record.error_message = str(exc)
+                    record.error_message = _public_blockchain_error(exc)
                     db.commit()
-                    raise HTTPException(status_code=502, detail=str(exc)) from exc
+                    raise HTTPException(status_code=502, detail=_public_blockchain_error(exc)) from exc
                 except BlockchainTransactionError as exc:
                     record.status = transition_state(record.status, "failed")
                     record.error_code = "transaction_error"
-                    record.error_message = str(exc)
+                    record.error_message = _public_blockchain_error(exc)
                     db.commit()
-                    raise HTTPException(status_code=502, detail=str(exc)) from exc
+                    raise HTTPException(status_code=502, detail=_public_blockchain_error(exc)) from exc
                 record.status = transition_state(record.status, result.status)
                 record.tx_hash = result.tx_hash or record.tx_hash
                 record.chain_id = result.chain_id
@@ -220,14 +252,14 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
                 record.confirmations = result.confirmations
                 record.submitted_at = result.submitted_at or record.submitted_at or now
                 record.confirmed_at = result.confirmed_at
-                record.error_message = result.error_message
+                record.error_message = _public_blockchain_error(result.error_code) if result.error_code else None
                 record.error_code = result.error_code
                 db.commit()
             explorer_url = f"https://sepolia.etherscan.io/tx/{record.tx_hash}" if record.tx_hash and record.chain_id == 11155111 else None
             return {
                 "status": record.status,
                 "mode": "sepolia",
-                "on_chain": True,
+                "on_chain": bool(record.tx_hash and record.block_number and record.status in {"confirming", "confirmed"}),
                 "report_id": report.id,
                 "report_hash": record.report_hash,
                 "tx_hash": record.tx_hash,
@@ -244,7 +276,7 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
     return {"status": "mock", "mode": "mock", "on_chain": False, "report_id": report.id, "report_hash": digest, "tx_hash": None}
 
 
-@api_router.get("/blockchain/verify/{report_id}")
+@api_router.get("/blockchain/verify/{report_id}", dependencies=[Depends(api_key_guard)])
 def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
     report = db.get(AnalysisReport, report_id)
     if not report:
@@ -270,9 +302,9 @@ def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> di
     try:
         result = blockchain.adapter.verify_commitment(digest, record.tx_hash if record else None)
     except BlockchainConfigurationError as exc:
-        return {"verified": False, "status": "invalid_configuration", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "invalid_configuration", "error": str(exc)}
+        return {"verified": False, "status": "invalid_configuration", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "invalid_configuration"}
     except (BlockchainDependencyError, BlockchainRPCError) as exc:
-        return {"verified": False, "status": "unavailable", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "rpc_unavailable", "error": str(exc)}
+        return {"verified": False, "status": "unavailable", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "rpc_unavailable"}
     local_mismatch = bool(record and record.report_hash != digest)
     verified = result.verified and not local_mismatch
     status_value = "mismatch" if local_mismatch else result.status

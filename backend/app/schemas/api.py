@@ -36,14 +36,10 @@ class AnalysisResponse(BaseModel):
     ai_analysis: dict[str, Any] | None = None
 
 
-class ThreatReportCreate(BaseModel):
-    indicator: str = Field(min_length=1, max_length=2048)
-    report_type: Literal["url", "domain", "message", "other"]
-    description: str = Field(min_length=1, max_length=10_000)
-
-
-class BlockchainRegisterRequest(BaseModel):
-    report_id: uuid.UUID
+class DashboardSummaryResponse(BaseModel):
+    total: int
+    total_reports: int
+    classifications: dict[str, int]
 
 
 class ThreatReportResponse(BaseModel):
@@ -52,3 +48,19 @@ class ThreatReportResponse(BaseModel):
     report_type: str
     description: str
     created_at: Any
+
+
+class ThreatFeedResponse(BaseModel):
+    items: list[ThreatReportResponse]
+    skip: int
+    limit: int
+
+
+class ThreatReportCreate(BaseModel):
+    indicator: str = Field(min_length=1, max_length=2048)
+    report_type: Literal["url", "domain", "message", "other"]
+    description: str = Field(min_length=1, max_length=10_000)
+
+
+class BlockchainRegisterRequest(BaseModel):
+    report_id: uuid.UUID
