@@ -1,0 +1,22 @@
+{
+  "name": "nexus-threat-registry",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test:contracts": "hardhat test",
+    "export:abi": "node scripts/export-abi.js",
+    "validate:deployment": "node scripts/validate-deployment-config.js",
+    "deploy:sepolia": "hardhat run scripts/deploy-sepolia.js --network sepolia",
+    "verify:deployment": "node scripts/verify-deployment.js"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "3.0.8",
+    "@nomicfoundation/hardhat-chai-matchers": "2.0.8",
+    "@openzeppelin/contracts": "5.0.2",
+    "chai": "4.5.0",
+    "dotenv": "16.4.5",
+    "ethers": "6.13.5",
+    "hardhat": "2.22.19"
+  }
+}

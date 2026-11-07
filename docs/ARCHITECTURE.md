@@ -1,0 +1,5 @@
+# Architecture
+
+The modular monolith separates API routing, SQLAlchemy persistence, deterministic analysis services, pinned-IP SSRF validation, threat-intelligence adapters, and risk scoring. A report is composed of a deterministic score and findings with evidence, source, explanation, recommendation, and confidence. External providers are optional and cannot silently turn unavailable data into a positive match. URL inspection uses a single validated DNS result for the subsequent socket connection and streams response bodies with a hard size limit.
+
+Blockchain registration stores only a SHA-256 commitment derived from report metadata. Mock mode remains the default and never contacts an RPC. Explicit Sepolia mode uses the versioned ABI at `contracts/abi/ThreatRegistry.v1.json`, validates chain, bytecode, signer, and operator authorization, and persists receipt/recovery metadata through Alembic revision `20261107_0003`. Persisted transaction hashes are rechecked on retries; replacement transactions and background polling are not automatic. The contract has not been deployed by this project and no live transaction has been tested.
