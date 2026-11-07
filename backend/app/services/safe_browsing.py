@@ -1,20 +1,22 @@
 import httpx
 
 from app.core.config import settings
+from app.services.provider_evidence import provider_result
 
 
 def _safe_matches(matches: list[object]) -> list[dict[str, str]]:
     safe_fields = ("threatType", "platformType", "threatEntryType")
     return [
-        {field: value for field in safe_fields if isinstance(value := match.get(field), str)}
+        safe_match
         for match in matches
         if isinstance(match, dict)
+        and (safe_match := {field: value for field in safe_fields if isinstance(value := match.get(field), str)})
     ]
 
 
 def check_safe_browsing(url: str) -> dict:
     if not settings.google_safe_browsing_key:
-        return {"source": "Google Safe Browsing", "status": "not_configured", "match": False}
+        return provider_result("Google Safe Browsing", "not_configured")
     body = {
         "client": {"clientId": "nexus-threat-intelligence", "clientVersion": "0.1.0"},
         "threatInfo": {
@@ -30,20 +32,31 @@ def check_safe_browsing(url: str) -> dict:
             if response.status_code >= 500 and attempt == 0:
                 continue
             if response.status_code in {401, 403}:
-                return {"source": "Google Safe Browsing", "status": "error", "match": False, "error": "invalid_api_key"}
+                return provider_result("Google Safe Browsing", "error", error="invalid_api_key")
             if response.status_code == 429:
-                return {"source": "Google Safe Browsing", "status": "rate_limited", "match": False}
+                return provider_result("Google Safe Browsing", "rate_limited")
             if response.status_code >= 400:
-                return {"source": "Google Safe Browsing", "status": "error", "match": False, "error": f"http_{response.status_code}"}
+                return provider_result("Google Safe Browsing", "error", error=f"http_{response.status_code}")
             data = response.json()
+            if not isinstance(data, dict):
+                return provider_result("Google Safe Browsing", "inconclusive", error="invalid_response")
             matches = data.get("matches", [])
             if not isinstance(matches, list):
-                return {"source": "Google Safe Browsing", "status": "error", "match": False, "error": "invalid_response"}
-            return {"source": "Google Safe Browsing", "status": "completed", "match": bool(matches), "evidence": _safe_matches(matches)}
+                return provider_result("Google Safe Browsing", "inconclusive", error="invalid_response")
+            safe_matches = _safe_matches(matches)
+            if matches and not safe_matches:
+                return provider_result("Google Safe Browsing", "inconclusive", error="invalid_match")
+            return provider_result(
+                "Google Safe Browsing",
+                "completed",
+                match=bool(safe_matches),
+                confidence=1.0 if safe_matches else 0.9,
+                evidence=safe_matches,
+            )
         except httpx.TimeoutException:
             if attempt == 0:
                 continue
-            return {"source": "Google Safe Browsing", "status": "unavailable", "match": False, "error": "timeout"}
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            return {"source": "Google Safe Browsing", "status": "error", "match": False, "error": type(exc).__name__}
-    return {"source": "Google Safe Browsing", "status": "unavailable", "match": False}
+            return provider_result("Google Safe Browsing", "unavailable", error="timeout")
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+            return provider_result("Google Safe Browsing", "error", error=type(exc).__name__)
+    return provider_result("Google Safe Browsing", "unavailable")

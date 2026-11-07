@@ -52,7 +52,7 @@ def _evidence_summary(findings: list, integrations: list[dict]) -> EvidenceSumma
     typed = [IntegrationResponse.model_validate(_safe_integration(item)) for item in integrations]
     confirmed = [item for item in typed if item.match is True]
     technical = [item for item in typed if item.source in {"TLS", "passive_website_inspection"}]
-    unavailable = [item for item in typed if item.status in {"not_configured", "unavailable", "rate_limited", "error"}]
+    unavailable = [item for item in typed if item.status in {"not_configured", "unavailable", "rate_limited", "error", "inconclusive"}]
     return EvidenceSummary(
         confirmed_matches=confirmed,
         technical_indicators=technical,

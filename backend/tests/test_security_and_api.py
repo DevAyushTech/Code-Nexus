@@ -92,6 +92,26 @@ def test_message_report_does_not_persist_url_query_values(client):
         assert "private-value" not in str(scam.data)
 
 
+def test_provider_unavailability_is_not_a_clean_verdict(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(router, "check_urlhaus", lambda url: {"source": "URLhaus", "status": "unavailable", "match": False, "error": "timeout"})
+    monkeypatch.setattr(router, "check_safe_browsing", lambda url: {"source": "Google Safe Browsing", "status": "not_configured", "match": False})
+    response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com"})
+    assert response.status_code == 201
+    body = response.json()
+    assert body["classification"] == "INCONCLUSIVE"
+    assert len(body["evidence_summary"]["inconclusive_or_unavailable"]) == 2
+
+
+def test_one_provider_match_controls_confirmed_classification(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(router, "check_urlhaus", lambda url: {"source": "URLhaus", "status": "completed", "match": True, "confidence": 1.0})
+    monkeypatch.setattr(router, "check_safe_browsing", lambda url: {"source": "Google Safe Browsing", "status": "unavailable", "match": False})
+    response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com"})
+    assert response.status_code == 201
+    assert response.json()["classification"] == "CONFIRMED_MALICIOUS"
+
+
 def test_new_url_reports_redact_query_values(client):
     test_client, session_factory = client
     response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com/login?token=private-value"})

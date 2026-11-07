@@ -9,7 +9,7 @@
 Nexus is a strong hackathon MVP foundation. The deterministic analysis pipeline, SSRF protections, TLS verification, provider isolation, local persistence, Sepolia adapter, and historical commitment verification are implemented and covered by focused tests. The existing suite currently reports:
 
 ```text
-96 passed, 1 warning
+101 passed, 1 warning
 ```
 
 The MVP is not yet complete for frontend handover because:
@@ -41,8 +41,8 @@ No new SaaS features, multi-tenancy, complex RBAC, password reset, job infrastru
 | Message analysis | IMPLEMENTED | MEDIUM | Deterministic urgency/payment/credential detection, IOC extraction, persistence, and message redaction are implemented and tested. |
 | Threat scoring | IMPLEMENTED | HIGH | `risk.py` defines bounded scoring and classifications; authoritative provider matches can produce `CONFIRMED_MALICIOUS`. The scoring is heuristic and not independently calibrated. |
 | Evidence quality | PARTIALLY_IMPLEMENTED | MEDIUM | `evidence_quality` is returned, but it is a simple `mixed`/`deterministic` label rather than a typed evidence model with provenance and freshness. |
-| URLhaus | IMPLEMENTED | HIGH | HTTP integration, bounded retries, timeout handling, 429 normalization, exact URL matching, safe evidence allowlisting, and tests exist. Live credentials/provider behavior is NOT_VERIFIED. |
-| Google Safe Browsing | IMPLEMENTED | HIGH | API v4 request, invalid-key/429/5xx/timeout handling, safe evidence normalization, and tests exist. Live credentials/provider behavior is NOT_VERIFIED. |
+| URLhaus | IMPLEMENTED | HIGH | HTTP form submission with Auth-Key, bounded retries, timeout/429/auth handling, exact URL matching, safe evidence allowlisting, normalized status/confidence/timestamp, and tests exist. A sanitized benign live check completed with no match. |
+| Google Safe Browsing | IMPLEMENTED | HIGH | API v4 `threatMatches:find` request, invalid-key/429/5xx/timeout handling, malformed-response detection, safe evidence normalization, and tests exist. A sanitized benign live check completed with no match. |
 | TLS validation | IMPLEMENTED | HIGH | Default certificate verification, hostname/SNI validation, sanitized certificate diagnostics, and focused tests exist. Real network certificate coverage is NOT_VERIFIED. |
 | Passive website inspection | IMPLEMENTED | HIGH | Pinned public resolution, HTTPS verification, redirect validation, response limits, header inspection, and diagnostic tests exist. Live end-to-end coverage is NOT_VERIFIED. |
 | SSRF/DNS protection | IMPLEMENTED | CRITICAL | Scheme/port restrictions, credential rejection, public-address checks, IP pinning, redirect revalidation, and private-address tests exist. Multi-process/network-environment rebinding behavior is not exhaustively integration-tested. |
@@ -80,6 +80,22 @@ Complete suite after Phase 2: 101 passed, 1 warning
 ```
 
 The tests use controlled provider responses and local fixtures. They verify behavior and privacy handling but do not constitute live validation of external provider credentials, public DNS environments, real certificate chains, or PostgreSQL.
+
+## Phase 3 verified results — Threat Intelligence Engine
+
+The URLhaus and Google Safe Browsing adapters now normalize every result with source attribution, explicit status, boolean match, bounded confidence, and a UTC check timestamp. Successful no-match responses remain distinguishable from `not_configured`, `unavailable`, `rate_limited`, `error`, and `inconclusive` states. Authentication failures are normalized to `invalid_api_key`; malformed response shapes are inconclusive rather than clean.
+
+Provider evidence remains allowlisted. Request credentials and submitted URLs are not included in returned evidence, and raw provider payloads are not persisted or exposed. The analysis route continues to treat only an explicit provider match as authoritative malicious evidence; unavailable, unconfigured, rate-limited, and inconclusive providers cannot produce a safe verdict or suppress the other provider.
+
+Verified results:
+
+```text
+Focused Phase 3 provider/route/service tests: 52 passed, 1 warning
+Live URLhaus benign check: completed, no match
+Live Google Safe Browsing benign check: completed, no match
+```
+
+The live checks used a known benign HTTPS input and emitted only sanitized status/match fields. They verify current configured access for that input at audit time, not ongoing quota, coverage, or production reliability. Malicious-provider behavior remains covered by controlled fixtures only.
 
 ## Incomplete feature work items
 

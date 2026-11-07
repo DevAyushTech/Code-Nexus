@@ -33,12 +33,9 @@ def test_urlhaus_malicious_match_is_normalized(monkeypatch):
 
     assert result["status"] == "completed"
     assert result["match"] is True
-    assert result["evidence"] == {
-        "query_status": "ok",
-        "url_match": True,
-        "threat": "malware",
-        "url_status": "online",
-    }
+    assert result["evidence"] == {"query_status": "ok", "url_match": True, "threat": "malware", "url_status": "online"}
+    assert result["confidence"] == 1.0
+    assert result["checked_at"]
     assert "private-value" not in str(result)
 
 
@@ -67,7 +64,9 @@ def test_urlhaus_rate_limit_and_server_error_retry(monkeypatch):
 
     result = check_urlhaus(URL)
 
-    assert result == {"source": "URLhaus", "status": "rate_limited", "match": False}
+    assert result["source"] == "URLhaus"
+    assert result["status"] == "rate_limited"
+    assert result["match"] is False
     assert len(calls) == 2
     assert all(call["timeout"] == settings.request_timeout_seconds for call in calls)
 
@@ -107,7 +106,16 @@ def test_urlhaus_invalid_credentials_are_error(monkeypatch):
 
     result = check_urlhaus(URL)
 
-    assert result == {"source": "URLhaus", "status": "error", "match": False, "error": "HTTPStatusError"}
+    assert result["status"] == "error"
+    assert result["error"] == "invalid_api_key"
+
+
+def test_urlhaus_malformed_response_is_inconclusive(monkeypatch):
+    configure_providers(monkeypatch)
+    monkeypatch.setattr("app.services.threat_intel.httpx.post", lambda *args, **kwargs: provider_response(200, json=[]))
+    result = check_urlhaus(URL)
+    assert result["status"] == "inconclusive"
+    assert result["match"] is False
 
 
 def test_safe_browsing_malicious_match_is_sanitized(monkeypatch):
@@ -151,7 +159,9 @@ def test_safe_browsing_invalid_credentials(monkeypatch):
 
     result = check_safe_browsing(URL)
 
-    assert result == {"source": "Google Safe Browsing", "status": "error", "match": False, "error": "invalid_api_key"}
+    assert result["source"] == "Google Safe Browsing"
+    assert result["status"] == "error"
+    assert result["error"] == "invalid_api_key"
 
 
 def test_safe_browsing_rate_limit(monkeypatch):
@@ -161,7 +171,8 @@ def test_safe_browsing_rate_limit(monkeypatch):
 
     result = check_safe_browsing(URL)
 
-    assert result == {"source": "Google Safe Browsing", "status": "rate_limited", "match": False}
+    assert result["source"] == "Google Safe Browsing"
+    assert result["status"] == "rate_limited"
 
 
 def test_safe_browsing_server_error_retries_then_unavailable(monkeypatch):
@@ -193,12 +204,9 @@ def test_safe_browsing_timeout_is_bounded(monkeypatch):
 
     result = check_safe_browsing(URL)
 
-    assert result == {
-        "source": "Google Safe Browsing",
-        "status": "unavailable",
-        "match": False,
-        "error": "timeout",
-    }
+    assert result["source"] == "Google Safe Browsing"
+    assert result["status"] == "unavailable"
+    assert result["error"] == "timeout"
     assert len(calls) == 2
 
 
@@ -211,3 +219,19 @@ def test_safe_browsing_invalid_json_is_error(monkeypatch):
 
     assert result["status"] == "error"
     assert result["error"] == "JSONDecodeError"
+
+
+def test_safe_browsing_malformed_matches_are_inconclusive(monkeypatch):
+    configure_providers(monkeypatch)
+    response = provider_response(200, json={"matches": [{"unexpected": "field"}]})
+    monkeypatch.setattr("app.services.safe_browsing.httpx.post", lambda *args, **kwargs: response)
+    result = check_safe_browsing(URL)
+    assert result["status"] == "inconclusive"
+    assert result["match"] is False
+
+
+def test_unconfigured_providers_are_explicit(monkeypatch):
+    monkeypatch.setattr(settings, "urlhaus_auth_key", None)
+    monkeypatch.setattr(settings, "google_safe_browsing_key", None)
+    assert check_urlhaus(URL)["status"] == "not_configured"
+    assert check_safe_browsing(URL)["status"] == "not_configured"
