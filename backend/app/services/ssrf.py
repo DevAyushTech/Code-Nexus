@@ -1,5 +1,6 @@
 import ipaddress
 import http.client
+import re
 import ssl
 import socket
 from dataclasses import dataclass
@@ -8,6 +9,22 @@ from urllib.parse import urljoin, urlparse
 
 class UnsafeURL(ValueError):
     pass
+
+
+def ssl_error_details(exc: ssl.SSLCertVerificationError, hostname: str) -> dict[str, object]:
+    message = getattr(exc, "verify_message", None)
+    if not message and len(exc.args) > 1:
+        message = exc.args[1]
+    sanitized_message = re.sub(r"[^A-Za-z0-9 .:_-]", "", str(message or ""))[:160]
+    details: dict[str, object] = {"error_hostname": hostname}
+    verify_code = getattr(exc, "verify_code", None)
+    if not isinstance(verify_code, int) and exc.args and isinstance(exc.args[0], int):
+        verify_code = exc.args[0]
+    if isinstance(verify_code, int):
+        details["verification_code"] = verify_code
+    if sanitized_message:
+        details["verification_message"] = sanitized_message
+    return details
 
 
 @dataclass(frozen=True)

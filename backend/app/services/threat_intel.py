@@ -9,6 +9,16 @@ def _normalize_url(value: str) -> str:
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/", parsed.query, ""))
 
 
+def _safe_evidence(data: dict, exact_match: bool) -> dict:
+    threat = data.get("threat")
+    return {
+        "query_status": data.get("query_status"),
+        "url_match": exact_match,
+        "threat": threat[:120] if isinstance(threat, str) else None,
+        "url_status": data.get("url_status"),
+    }
+
+
 def check_urlhaus(url: str) -> dict:
     if not settings.urlhaus_auth_key:
         return {"source": "URLhaus", "status": "not_configured", "match": False}
@@ -17,6 +27,8 @@ def check_urlhaus(url: str) -> dict:
             response = httpx.post(settings.urlhaus_api_url, data={"url": url}, headers={"Auth-Key": settings.urlhaus_auth_key.get_secret_value()}, timeout=settings.request_timeout_seconds)
             if response.status_code >= 500 and attempt == 0:
                 continue
+            if response.status_code == 429:
+                return {"source": "URLhaus", "status": "rate_limited", "match": False}
             response.raise_for_status()
             data = response.json()
             returned_url = data.get("url")
@@ -29,7 +41,7 @@ def check_urlhaus(url: str) -> dict:
                 "source": "URLhaus",
                 "status": "completed",
                 "match": match,
-                "evidence": {"query_status": data.get("query_status"), "url_match": exact_match, "threat": threat, "url_status": url_status},
+                "evidence": _safe_evidence(data, exact_match),
             }
         except httpx.TimeoutException as exc:
             if attempt == 0:

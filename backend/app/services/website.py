@@ -1,5 +1,8 @@
+import ssl
+from urllib.parse import urlparse
+
 from app.core.config import settings
-from app.services.ssrf import UnsafeURL, open_pinned_response, resolve_redirect
+from app.services.ssrf import UnsafeURL, open_pinned_response, resolve_redirect, ssl_error_details
 
 
 def inspect_website(url: str) -> dict:
@@ -31,5 +34,9 @@ def inspect_website(url: str) -> dict:
                 response.close()
                 connection.close()
         raise UnsafeURL("Redirect limit exceeded.")
+    except ssl.SSLCertVerificationError as exc:
+        hostname = urlparse(current).hostname or ""
+        return {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects, **ssl_error_details(exc, hostname)}
     except (OSError, UnsafeURL, ValueError) as exc:
-        return {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects}
+        hostname = urlparse(current).hostname or ""
+        return {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects, "error_hostname": hostname}

@@ -3,6 +3,7 @@ import ssl
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.services.ssrf import ssl_error_details
 
 
 def inspect_tls(host: str) -> dict:
@@ -14,5 +15,7 @@ def inspect_tls(host: str) -> dict:
                 not_after = cert.get("notAfter")
                 expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc) if not_after else None
                 return {"status": "valid", "issuer": cert.get("issuer"), "subject": cert.get("subject"), "subject_alt_names": cert.get("subjectAltName", []), "expires_at": expiry.isoformat() if expiry else None}
+    except ssl.SSLCertVerificationError as exc:
+        return {"source": "TLS", "status": "error", "error": type(exc).__name__, **ssl_error_details(exc, host)}
     except (OSError, ssl.SSLError, ValueError) as exc:
-        return {"status": "error", "error": type(exc).__name__}
+        return {"source": "TLS", "status": "error", "error": type(exc).__name__, "error_hostname": host}

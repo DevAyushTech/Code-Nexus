@@ -200,3 +200,16 @@ def test_urlhaus_requires_validated_evidence(monkeypatch):
     result = check_urlhaus("https://example.com/")
     assert result["status"] == "completed"
     assert result["match"] is False
+
+
+def test_url_analysis_completes_when_provider_is_unavailable(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(router, "check_urlhaus", lambda url: {"source": "URLhaus", "status": "unavailable", "match": False})
+    monkeypatch.setattr(router, "check_safe_browsing", lambda url: {"source": "Google Safe Browsing", "status": "completed", "match": False})
+
+    response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com"})
+
+    assert response.status_code == 201
+    integrations = {item["source"]: item for item in response.json()["integrations"]}
+    assert integrations["URLhaus"]["status"] == "unavailable"
+    assert integrations["Google Safe Browsing"]["status"] == "completed"

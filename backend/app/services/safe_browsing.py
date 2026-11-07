@@ -3,6 +3,15 @@ import httpx
 from app.core.config import settings
 
 
+def _safe_matches(matches: list[object]) -> list[dict[str, str]]:
+    safe_fields = ("threatType", "platformType", "threatEntryType")
+    return [
+        {field: value for field in safe_fields if isinstance(value := match.get(field), str)}
+        for match in matches
+        if isinstance(match, dict)
+    ]
+
+
 def check_safe_browsing(url: str) -> dict:
     if not settings.google_safe_browsing_key:
         return {"source": "Google Safe Browsing", "status": "not_configured", "match": False}
@@ -30,7 +39,7 @@ def check_safe_browsing(url: str) -> dict:
             matches = data.get("matches", [])
             if not isinstance(matches, list):
                 return {"source": "Google Safe Browsing", "status": "error", "match": False, "error": "invalid_response"}
-            return {"source": "Google Safe Browsing", "status": "completed", "match": bool(matches), "evidence": matches}
+            return {"source": "Google Safe Browsing", "status": "completed", "match": bool(matches), "evidence": _safe_matches(matches)}
         except httpx.TimeoutException:
             if attempt == 0:
                 continue

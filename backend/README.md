@@ -11,7 +11,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-OpenAPI is available at `http://localhost:8000/docs`. Copy `.env.example` to `.env` to configure PostgreSQL, URLhaus, AI, and Sepolia integrations. Unconfigured integrations return an explicit `not_configured` status. Install `requirements-blockchain.txt` in a Python 3.11 deployment when enabling the Web3 adapter.
+OpenAPI is available at `http://localhost:8000/docs`. Copy `.env.example` to `.env` for local Windows development; it uses the existing SQLite database at `./nexus.db` and does not require Docker or PostgreSQL. Unconfigured integrations return an explicit `not_configured` status. Install `requirements-blockchain.txt` in a Python 3.11 deployment when enabling the Web3 adapter.
+
+Local development and Docker use separate database configurations:
+
+- **Windows/Uvicorn:** keep `DATABASE_URL=sqlite:///./nexus.db` in `backend/.env`. This preserves and reuses the existing local SQLite database.
+- **Docker Compose:** `docker-compose.yml` injects PostgreSQL's internal `db` hostname into the containerized API. The `db` hostname is only resolvable inside the Compose network and must not be used when running Uvicorn directly on Windows.
+
+Do not run migrations as part of switching database URLs. If PostgreSQL is needed for local development outside Docker, use a host-resolvable PostgreSQL URL separately; otherwise leave the SQLite URL unchanged.
 
 For reproducible Python 3.11 setup:
 
