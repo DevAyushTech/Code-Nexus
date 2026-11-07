@@ -1,5 +1,7 @@
 # API contract
 
+The canonical field-level frontend contract is [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md). The developer handover is [../FRONTEND_HANDOVER.md](../FRONTEND_HANDOVER.md).
+
 Base URL: `http://localhost:8000`.
 
 Authentication uses one shared demo/admin API key. Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. In protected demo mode, send `X-API-Key` on every protected endpoint below. Missing or invalid keys return `401`; configured per-client limits return `429`. `API_AUTH_MODE=demo` is intended only for local development and permits an empty key.
@@ -10,7 +12,7 @@ Authentication uses one shared demo/admin API key. Set `API_AUTH_MODE=protected_
 - `POST /api/v1/analyze/message` accepts `{"content":"..."}`. Message content is not returned.
 - `GET /api/v1/reports/{id}` retrieves an analysis report.
 - `GET /api/v1/dashboard/summary` returns counts by classification.
-- `GET /api/v1/threats?skip=0&limit=50` lists threat reports.
+- `GET /api/v1/threats?skip=0&limit=50&report_type=url` lists threat reports with bounded pagination and optional type filtering.
 - `POST /api/v1/threat-reports` accepts `indicator`, `report_type`, and `description`; the indicator is hashed and redacted in storage.
 - `POST /api/v1/blockchain/register` accepts `{"report_id":"..."}` and creates a local cryptographic commitment in mock mode. In explicit Sepolia mode it submits the commitment to the configured deployed contract and returns receipt metadata only after a successful receipt.
 - `GET /api/v1/blockchain/verify/{report_id}` returns local commitment status in mock mode, or queries `verifyThreat` on the configured Sepolia contract.
@@ -39,7 +41,7 @@ Mock responses include `mode: "mock"` and `on_chain: false`; they never represen
 
 When explicitly configured for Sepolia and a deployed contract, registration returns `mode: "sepolia"`, the actual `tx_hash`, `chain_id`, `contract_address`, receipt block, gas used, and confirmation count. It returns `status: "confirmed"` only after a successful receipt. RPC, configuration, authorization, gas, revert, and timeout failures are returned as explicit HTTP errors; no automatic mock fallback occurs.
 
-Verification recomputes the canonical report commitment from the current database report and queries `verifyThreat(bytes32)`. Sepolia verification returns `verification_source: "sepolia"` and one of `verified`, `not_registered`, `mismatch`, `pending`, `confirming`, `unavailable`, or `invalid_configuration`. `verified: true` requires a matching on-chain record, a successful receipt when a transaction hash is available, and the configured confirmation depth. Mock verification returns `verification_source: "local_mock"`, `mode: "mock"`, `on_chain: false`, and never claims on-chain verification.
+Verification recomputes the canonical report commitment from the current database report and queries `verifyThreat(bytes32)`. Sepolia verification returns `verification_source: "sepolia"` and one of `verified`, `not_registered`, `mismatch`, `pending`, `confirming`, `rpc_unavailable`, or `invalid_configuration`. `verified: true` requires a matching on-chain record, a successful receipt when a transaction hash is available, and the configured confirmation depth. Mock verification returns `verification_source: "local_mock"`, `mode: "mock"`, `on_chain: false`, and never claims on-chain verification.
 
 Example mock verification:
 
@@ -53,7 +55,7 @@ Example confirmed Sepolia verification:
 {"verified": true, "status": "verified", "mode": "sepolia", "verification_source": "sepolia", "on_chain": true, "chain_id": 11155111, "contract_address": "0x…", "reporter": "0x…", "on_chain_timestamp": 1730000000, "confirmations": 4, "receipt_status": 1}
 ```
 
-Analysis responses include `evidence_quality`, `ai_analysis` (null when unavailable), and each finding includes `confidence`. A completed message AI object has `scam_indicators`, `extracted_urls`, `extracted_emails`, `extracted_phone_numbers`, `explanation`, `recommendations`, and `confidence` (0-1). Integration objects use `not_configured`, `unavailable`, `error`, `rate_limited`, `timeout`, or `completed` statuses.
+Analysis responses include `evidence_quality`, `evidence_summary`, `ai_analysis` (null when unavailable), and each finding includes `confidence`. A completed message AI object has `scam_indicators`, `extracted_urls`, `extracted_emails`, `extracted_phone_numbers`, `explanation`, `recommendations`, and `confidence` (0-1). Integration objects use `not_configured`, `unavailable`, `error`, `rate_limited`, `inconclusive`, or `completed` statuses. A completed no-match is not equivalent to an unavailable or inconclusive provider.
 
 Example completed message response:
 

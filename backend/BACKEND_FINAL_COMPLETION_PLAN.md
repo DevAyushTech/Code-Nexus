@@ -342,6 +342,29 @@ PostgreSQL integration: NOT VERIFIED (no disposable PostgreSQL instance availabl
 
 Static Docker checks verified the startup command, Alembic inclusion, secret exclusion, external credential substitution, healthcheck, and healthy dependency gate. No live container, PostgreSQL, provider, or blockchain validation was claimed.
 
+## Phase 7 verified results — Final API Documentation and Frontend Handover
+
+The API surface was cross-checked against `app/api/v1/router.py`, `app/schemas/api.py`, `app/main.py`, and `app/core/security.py`. The canonical documentation covers all 11 routes: public liveness/readiness plus URL analysis, message analysis, report retrieval, dashboard, threat feed, threat-report creation/retrieval, blockchain registration, and read-only blockchain verification.
+
+Documentation changed:
+
+- `docs/FRONTEND_INTEGRATION.md`: exact route, authentication, request, query, response, error, redaction, CORS, retry, provider-state, and blockchain-state behavior.
+- `FRONTEND_HANDOVER.md`: architecture, endpoint map, TypeScript interfaces, service examples, UI states, integration sequence, and manual handover checklist.
+- `docs/API_DOCUMENTATION.md`: links to the canonical handover and corrected feed filtering, evidence-summary, and `inconclusive` provider-state references.
+
+OpenAPI/security tests confirm the existing `X-API-Key` scheme and protected-operation metadata. FastAPI serves Swagger at `/docs`; no live browser/frontend integration was run. The frontend must treat `INCONCLUSIVE` and provider-unavailable states as insufficient evidence rather than clean, and must treat blockchain `on_chain` as authoritative only with verified confirmation evidence.
+
+Validation:
+
+```text
+Focused API/security/OpenAPI tests: 24 passed, 1 warning
+Full backend suite: 120 passed, 1 warning
+git diff --check: passed
+Live frontend integration: NOT RUN
+```
+
+Remaining handover limitations: the shared API key must remain server-side, Docker/PostgreSQL execution remains unverified because Docker is unavailable, live provider behavior is not guaranteed by mocked tests, and the in-process rate limiter is intended for a single backend worker.
+
 ## Phase 5 verified results — Blockchain Reliability and Verification
 
 The canonical report commitment remains `sha256(f"{report.id}:{report.target_hash}:{report.classification}:{report.risk_score}")`; repeated computation is deterministic and no historical record or hash was changed. Sepolia verification continues to recompute the expected hash locally, call the contract's read-only `verifyThreat`, inspect the persisted transaction receipt when available, validate receipt success, and enforce configured confirmation depth.
