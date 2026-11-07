@@ -85,6 +85,10 @@ def canonical_report_hash(report: AnalysisReport) -> str:
     return hashlib.sha256(f"{report.id}:{report.target_hash}:{report.classification}:{report.risk_score}".encode()).hexdigest()
 
 
+def _record_on_chain(status: str, confirmations: int | None, required: int | None = None) -> bool:
+    return status == "confirmed" and confirmations is not None and (required is None or confirmations >= required)
+
+
 def persist_analysis(db: Session, kind: str, result: dict, integrations: list[dict] | None = None, ai_analysis: dict | None = None) -> AnalysisResponse:
     integrations = [_safe_integration(item) for item in (integrations or [])]
     ai_analysis = _safe_ai_analysis(ai_analysis)
@@ -217,7 +221,7 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
         return {
             "status": existing.status,
             "mode": "sepolia" if existing.chain_id else "mock",
-            "on_chain": bool(existing.tx_hash and existing.block_number and existing.status in {"confirming", "confirmed"}),
+            "on_chain": _record_on_chain(existing.status, existing.confirmations, getattr(blockchain.config, "blockchain_confirmations", None)),
             "report_id": report.id,
             "report_hash": existing.report_hash,
             "tx_hash": existing.tx_hash,
@@ -311,7 +315,7 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
             return {
                 "status": record.status,
                 "mode": "sepolia",
-                "on_chain": bool(record.tx_hash and record.block_number and record.status in {"confirming", "confirmed"}),
+                "on_chain": _record_on_chain(record.status, record.confirmations, getattr(blockchain.config, "blockchain_confirmations", None)),
                 "report_id": report.id,
                 "report_hash": record.report_hash,
                 "tx_hash": record.tx_hash,
@@ -356,7 +360,7 @@ def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> Bl
     except BlockchainConfigurationError as exc:
         return {"verified": False, "status": "invalid_configuration", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "invalid_configuration"}
     except (BlockchainDependencyError, BlockchainRPCError) as exc:
-        return {"verified": False, "status": "unavailable", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "rpc_unavailable"}
+        return {"verified": False, "status": "rpc_unavailable", "mode": "sepolia", "verification_source": "sepolia", "on_chain": False, "report_hash": digest, "tx_hash": record.tx_hash if record else None, "error_code": "rpc_unavailable"}
     local_mismatch = bool(record and record.report_hash != digest)
     verified = result.verified and not local_mismatch
     status_value = "mismatch" if local_mismatch else result.status
@@ -365,7 +369,7 @@ def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> Bl
         "status": status_value,
         "mode": "sepolia",
         "verification_source": "sepolia",
-        "on_chain": result.registered,
+        "on_chain": result.verified and result.registered,
         "report_hash": digest,
         "tx_hash": record.tx_hash if record else None,
         "chain_id": result.chain_id,

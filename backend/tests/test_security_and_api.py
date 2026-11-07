@@ -217,6 +217,22 @@ def test_sepolia_verification_rejects_stale_local_commitment(client, monkeypatch
     assert response.json()["verified"] is False
 
 
+def test_verification_on_chain_requires_verified_commitment(client, monkeypatch):
+    test_client, _ = client
+    analysis = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    report_id = uuid.UUID(analysis.json()["id"])
+    monkeypatch.setattr(router, "get_blockchain_service", lambda: SimpleNamespace(
+        config=SimpleNamespace(blockchain_mode="sepolia"),
+        adapter=SimpleNamespace(verify_commitment=lambda expected_hash, tx_hash: VerificationResult(
+            "confirming", False, 11155111, "0x" + "1" * 40, True, "0x" + "2" * 40, 123, 1, 1, 10, "insufficient_confirmations"
+        )),
+    ))
+    response = test_client.get(f"/api/v1/blockchain/verify/{report_id}")
+    assert response.status_code == 200
+    assert response.json()["on_chain"] is False
+    assert response.json()["status"] == "confirming"
+
+
 def test_rate_limit_returns_429(client, monkeypatch):
     test_client, _ = client
     limiter._events.clear()

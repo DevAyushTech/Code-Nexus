@@ -86,11 +86,16 @@ class VerificationResult:
 
 
 def _receipt_result(status: BlockchainStatus, config: Settings, tx_hash: str, receipt: Any, submitted_at: datetime, web3: Any) -> RegistrationResult:
-    block_number = int(receipt["blockNumber"])
-    gas_used = int(receipt["gasUsed"])
-    if int(receipt["status"]) != 1:
+    try:
+        block_number = int(receipt["blockNumber"])
+        gas_used = int(receipt["gasUsed"])
+        receipt_status = int(receipt["status"])
+        current_block = int(web3.eth.block_number)
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise BlockchainRPCError("Blockchain receipt response was malformed.") from exc
+    if receipt_status != 1:
         return RegistrationResult("reverted", tx_hash, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", block_number, gas_used, submitted_at, None, 0, "Transaction receipt reported failure.", "transaction_reverted")
-    confirmations = max(0, int(web3.eth.block_number) - block_number + 1)
+    confirmations = max(0, current_block - block_number + 1)
     if confirmations < config.blockchain_confirmations:
         return RegistrationResult("confirming", tx_hash, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", block_number, gas_used, submitted_at, None, confirmations, "Receipt is successful but confirmation depth has not been reached.", "insufficient_confirmations")
     return RegistrationResult("confirmed", tx_hash, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", block_number, gas_used, submitted_at, datetime.now(timezone.utc), confirmations)
@@ -208,7 +213,12 @@ class SepoliaBlockchainAdapter:
             if "not found" in message or "unknown" in message or "receipt" in message:
                 return RegistrationResult("timeout", tx_hash, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", submitted_at=submitted_at, error_message="Transaction receipt is not yet available.", error_code="receipt_unavailable")
             raise BlockchainRPCError("Transaction receipt lookup failed.") from exc
-        return _receipt_result(status, self.config, tx_hash, receipt, submitted_at, web3)
+        try:
+            return _receipt_result(status, self.config, tx_hash, receipt, submitted_at, web3)
+        except BlockchainRPCError:
+            raise
+        except Exception as exc:
+            raise BlockchainRPCError("Blockchain receipt response was invalid.") from exc
 
     def register_hash(self, report_hash: str, on_submitted: Callable[[str, datetime], None] | None = None) -> RegistrationResult:
         status = self.validate_provider()
@@ -250,6 +260,8 @@ class SepoliaBlockchainAdapter:
             return _receipt_result(status, self.config, tx_hex, receipt, submitted_at, web3)
         except BlockchainTransactionError:
             raise
+        except BlockchainRPCError:
+            raise
         except Exception as exc:
             raise BlockchainTransactionError("Blockchain transaction failed.") from exc
 
@@ -267,7 +279,16 @@ class SepoliaBlockchainAdapter:
         status = self.validate_read_provider()
         web3 = self._load_web3()
         contract = self._contract_instance(web3)
-        exists, reporter, timestamp = contract.functions.verifyThreat(self._hash_bytes32(expected_hash)).call()
+        try:
+            exists, reporter, timestamp = contract.functions.verifyThreat(self._hash_bytes32(expected_hash)).call()
+            exists = bool(exists)
+            timestamp = int(timestamp)
+        except (BlockchainConfigurationError, BlockchainRPCError):
+            raise
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            raise BlockchainRPCError("On-chain verification response was malformed.") from exc
+        except Exception as exc:
+            raise BlockchainRPCError("On-chain verification failed.") from exc
         receipt_status = None
         confirmations = None
         block_number = None
@@ -279,9 +300,12 @@ class SepoliaBlockchainAdapter:
                 if "not found" in message or "unknown" in message or "receipt" in message:
                     return VerificationResult("pending", False, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", bool(exists), reporter if exists else None, int(timestamp) if exists else None, error_code="receipt_unavailable")
                 raise BlockchainRPCError("Transaction receipt lookup failed.") from exc
-            receipt_status = int(receipt["status"])
-            block_number = int(receipt["blockNumber"])
-            confirmations = max(0, int(web3.eth.block_number) - block_number + 1)
+            try:
+                receipt_status = int(receipt["status"])
+                block_number = int(receipt["blockNumber"])
+                confirmations = max(0, int(web3.eth.block_number) - block_number + 1)
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                raise BlockchainRPCError("Blockchain receipt response was malformed.") from exc
             if receipt_status != 1:
                 return VerificationResult("mismatch", False, status.chain_id or SEPOLIA_CHAIN_ID, status.contract_address or "", bool(exists), reporter if exists else None, int(timestamp) if exists else None, confirmations, receipt_status, block_number, "transaction_reverted")
             if confirmations < self.config.blockchain_confirmations:

@@ -200,12 +200,28 @@ def test_receipt_timeout(monkeypatch):
     assert result.error_code == "receipt_timeout"
 
 
+def test_rpc_timeout_is_sanitized(monkeypatch):
+    class TimeoutProvider(FakeEth):
+        def wait_for_transaction_receipt(self, tx_hash, timeout):
+            raise TimeoutError("RPC provider timeout")
+    adapter = prepare_adapter(monkeypatch, eth=TimeoutProvider())
+    result = adapter.register_hash("ab" * 32)
+    assert result.status == "timeout"
+    assert "RPC provider" not in (result.error_message or "")
+
+
 def test_insufficient_confirmations(monkeypatch):
     adapter = prepare_adapter(monkeypatch, eth=FakeEth())
     adapter._web3.eth.block_number = 10
     result = adapter.register_hash("ab" * 32)
     assert result.status == "confirming"
     assert result.error_code == "insufficient_confirmations"
+
+
+def test_malformed_receipt_is_reported_as_rpc_error(monkeypatch):
+    adapter = prepare_adapter(monkeypatch, eth=FakeEth(receipt={"status": 1}))
+    with pytest.raises(BlockchainRPCError, match="receipt"):
+        adapter.register_hash("ab" * 32)
 
 
 def test_receipt_recovery(monkeypatch):
@@ -246,6 +262,17 @@ def test_verified_commitment_requires_successful_receipt_and_depth(monkeypatch):
     assert result.receipt_status == 1
 
 
+def test_canonical_hash_is_deterministic():
+    from app.api.v1.router import canonical_report_hash
+    report = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000001",
+        target_hash="a" * 64,
+        classification="SUSPICIOUS",
+        risk_score=42,
+    )
+    assert canonical_report_hash(report) == canonical_report_hash(report)
+
+
 def test_unregistered_commitment(monkeypatch):
     adapter = prepare_adapter(monkeypatch)
     result = adapter.verify_commitment("ab" * 32)
@@ -280,6 +307,13 @@ def test_verification_insufficient_confirmations(monkeypatch):
     assert result.status == "confirming"
     assert result.verified is False
     assert result.error_code == "insufficient_confirmations"
+
+
+def test_verification_malformed_receipt_is_rpc_error(monkeypatch):
+    adapter = prepare_adapter(monkeypatch, eth=FakeEth(receipt={"status": 1}))
+    adapter._contract = FakeContract(exists=True)
+    with pytest.raises(BlockchainRPCError, match="receipt"):
+        adapter.verify_commitment("ab" * 32, "0x" + "12" * 32)
 
 
 def test_on_chain_match_without_receipt_is_not_verified(monkeypatch):

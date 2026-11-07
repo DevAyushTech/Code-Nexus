@@ -9,7 +9,7 @@
 Nexus is a strong hackathon MVP foundation. The deterministic analysis pipeline, SSRF protections, TLS verification, provider isolation, local persistence, Sepolia adapter, and historical commitment verification are implemented and covered by focused tests. The existing suite currently reports:
 
 ```text
-106 passed, 1 warning
+116 passed, 1 warning
 ```
 
 The MVP is not yet complete for frontend handover because:
@@ -315,3 +315,19 @@ Nexus is complete for hackathon frontend handover when all of the following are 
 4. Add the protected-route/OpenAPI contract tests.
 
 This is the smallest high-value phase: it closes the current handover blocker without touching application data, migrations, smart contracts, or blockchain state.
+
+## Phase 5 verified results — Blockchain Reliability and Verification
+
+The canonical report commitment remains `sha256(f"{report.id}:{report.target_hash}:{report.classification}:{report.risk_score}")`; repeated computation is deterministic and no historical record or hash was changed. Sepolia verification continues to recompute the expected hash locally, call the contract's read-only `verifyThreat`, inspect the persisted transaction receipt when available, validate receipt success, and enforce configured confirmation depth.
+
+Reliability improvements:
+
+- Malformed receipt fields now produce sanitized `BlockchainRPCError` results instead of leaking parsing exceptions.
+- RPC failures propagate through sanitized API handling.
+- `on_chain` is true only for a confirmation-sufficient `confirmed` record or a `verified` on-chain commitment; pending, confirming, reverted, mismatched, and unavailable states remain false.
+- Existing transaction hashes are inspected for recovery; duplicate registration checks the contract before submission and the route reuses persisted records.
+- Verification remains read-only and never broadcasts a transaction.
+
+Verified mocked/read-only test coverage includes deterministic hashing, missing reports, commitment mismatch, duplicate registration prevention, interrupted receipt recovery, successful and reverted receipts, insufficient confirmations, pending receipts, malformed receipts, RPC timeout handling, and confirmation-gated `on_chain` responses.
+
+Phase 5 focused result: **44 passed, 1 warning**. No live Sepolia transaction or registration endpoint call was performed during this phase. Live chain verification remains limited to the previously recorded read-only evidence; current adapter reliability evidence is mocked.
