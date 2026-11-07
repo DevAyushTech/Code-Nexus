@@ -28,7 +28,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Set `API_AUTH_KEY` to require `X-API-Key` on analysis and threat-report submissions. Configure the rate-limit values for the single-process MVP; use a shared gateway or distributed limiter for multiple workers.
+Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` to require `X-API-Key` on all sensitive analysis, report, feed, dashboard, threat-report, and blockchain endpoints. `API_AUTH_MODE=demo` is local-development-only and permits an empty key. Configure the rate-limit values for the single-process MVP; use one worker for the hackathon demo.
 
 AI is disabled unless `AI_ENABLED=true`, a supported `AI_PROVIDER` (`openai_compatible` or `gemini`), `AI_API_KEY`, and `AI_MODEL` are configured. Google Safe Browsing is enabled when `GOOGLE_SAFE_BROWSING_KEY` is set. Both integrations return explicit status values and never turn failures into positive matches.
 

@@ -2,9 +2,10 @@
 
 Base URL: `http://localhost:8000`.
 
-If `API_AUTH_KEY` is configured, send `X-API-Key` on the three submission endpoints. Invalid keys return `401`; configured per-client limits return `429`.
+Authentication uses one shared demo/admin API key. Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. In protected demo mode, send `X-API-Key` on every protected endpoint below. Missing or invalid keys return `401`; configured per-client limits return `429`. `API_AUTH_MODE=demo` is intended only for local development and permits an empty key.
 
 - `GET /health` returns service status.
+- `GET /health/ready` checks database readiness and returns `503` if the database is unavailable.
 - `POST /api/v1/analyze/url` accepts `{"url":"https://example.com"}` and returns a report with `id`, `classification`, `risk_score`, `findings`, and integration statuses.
 - `POST /api/v1/analyze/message` accepts `{"content":"..."}`. Message content is not returned.
 - `GET /api/v1/reports/{id}` retrieves an analysis report.
@@ -13,6 +14,26 @@ If `API_AUTH_KEY` is configured, send `X-API-Key` on the three submission endpoi
 - `POST /api/v1/threat-reports` accepts `indicator`, `report_type`, and `description`; the indicator is hashed and redacted in storage.
 - `POST /api/v1/blockchain/register` accepts `{"report_id":"..."}` and creates a local cryptographic commitment in mock mode. In explicit Sepolia mode it submits the commitment to the configured deployed contract and returns receipt metadata only after a successful receipt.
 - `GET /api/v1/blockchain/verify/{report_id}` returns local commitment status in mock mode, or queries `verifyThreat` on the configured Sepolia contract.
+
+Protected endpoints:
+
+- `POST /api/v1/analyze/url`
+- `POST /api/v1/analyze/message`
+- `GET /api/v1/reports/{id}`
+- `GET /api/v1/dashboard/summary`
+- `GET /api/v1/threats`
+- `POST /api/v1/threat-reports`
+- `GET /api/v1/threat-reports/{id}`
+- `POST /api/v1/blockchain/register`
+- `GET /api/v1/blockchain/verify/{id}`
+
+Example:
+
+```powershell
+curl.exe -H "X-API-Key: <demo-key>" http://localhost:8000/api/v1/dashboard/summary
+```
+
+The generated OpenAPI document at `/docs` declares the `X-API-Key` API-key scheme for these operations.
 
 Mock responses include `mode: "mock"` and `on_chain: false`; they never represent a blockchain transaction. Sepolia responses include `mode: "sepolia"` and explicit transaction states: `pending`, `submitted`, `confirming`, `confirmed`, `failed`, `reverted`, or `timeout`. A grounded Sepolia Etherscan `explorer_url` is included only when a transaction hash is persisted. There is no automatic fallback to mock mode.
 

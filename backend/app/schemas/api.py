@@ -23,6 +23,15 @@ class FindingResponse(BaseModel):
     confidence: float = 0.0
 
 
+class IntegrationResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    source: str | None = None
+    status: str
+    match: bool | None = None
+    evidence: Any | None = None
+    error: str | None = None
+
+
 class AnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -31,7 +40,7 @@ class AnalysisResponse(BaseModel):
     classification: str
     risk_score: int
     findings: list[FindingResponse]
-    integrations: list[dict[str, Any]] = []
+    integrations: list[IntegrationResponse] = []
     evidence_quality: str = "deterministic"
     ai_analysis: dict[str, Any] | None = None
 
@@ -54,6 +63,39 @@ class ThreatFeedResponse(BaseModel):
     items: list[ThreatReportResponse]
     skip: int
     limit: int
+
+
+class BlockchainRegistrationResponse(BaseModel):
+    status: str
+    mode: str
+    on_chain: bool
+    report_id: uuid.UUID
+    report_hash: str
+    tx_hash: str | None = None
+    chain_id: int | None = None
+    contract_address: str | None = None
+    block_number: int | None = None
+    gas_used: int | None = None
+    confirmations: int | None = None
+    explorer_url: str | None = None
+
+
+class BlockchainVerificationResponse(BaseModel):
+    verified: bool
+    status: str
+    mode: str
+    verification_source: str
+    on_chain: bool
+    report_hash: str
+    tx_hash: str | None = None
+    chain_id: int | None = None
+    contract_address: str | None = None
+    reporter: str | None = None
+    on_chain_timestamp: int | None = None
+    confirmations: int | None = None
+    receipt_status: int | None = None
+    block_number: int | None = None
+    error_code: str | None = None
 
 
 class ThreatReportCreate(BaseModel):

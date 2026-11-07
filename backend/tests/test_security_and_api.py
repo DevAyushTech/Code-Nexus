@@ -240,6 +240,8 @@ def test_authenticated_routes_require_api_key(client, monkeypatch):
     monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
     response = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
     assert response.status_code == 401
+    response = test_client.post("/api/v1/analyze/message", headers={"X-API-Key": "wrong-key"}, json={"content": "hello"})
+    assert response.status_code == 401
     response = test_client.post("/api/v1/analyze/message", headers={"X-API-Key": "test-key"}, json={"content": "hello"})
     assert response.status_code == 201
 
@@ -259,6 +261,33 @@ def test_cors_allows_configured_frontend_and_rejects_other_origins(client):
     assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
     assert "x-api-key" in api_key_allowed.headers.get("access-control-allow-headers", "").lower()
     assert denied.headers.get("access-control-allow-origin") is None
+
+
+def test_openapi_declares_api_key_security_for_protected_routes():
+    schema = app.openapi()
+    assert schema["components"]["securitySchemes"]["APIKeyHeader"]["name"] == "X-API-Key"
+    protected_paths = (
+        "/api/v1/analyze/url",
+        "/api/v1/analyze/message",
+        "/api/v1/reports/{report_id}",
+        "/api/v1/dashboard/summary",
+        "/api/v1/threats",
+        "/api/v1/threat-reports",
+        "/api/v1/threat-reports/{report_id}",
+        "/api/v1/blockchain/register",
+        "/api/v1/blockchain/verify/{report_id}",
+    )
+    for path in protected_paths:
+        operations = schema["paths"][path]
+        for operation in operations.values():
+            if isinstance(operation, dict) and "responses" in operation:
+                assert {"APIKeyHeader": []} in operation["security"]
+
+
+def test_typed_blockchain_response_schemas_are_in_openapi():
+    schemas = app.openapi()["components"]["schemas"]
+    assert "BlockchainRegistrationResponse" in schemas
+    assert "BlockchainVerificationResponse" in schemas
 
 
 def test_urlhaus_requires_validated_evidence(monkeypatch):

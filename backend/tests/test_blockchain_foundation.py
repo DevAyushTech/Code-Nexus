@@ -11,6 +11,16 @@ def test_default_mode_is_mock():
     assert BlockchainService(config).status().on_chain is False
 
 
+def test_protected_demo_requires_api_key():
+    with pytest.raises(ValidationError, match="Protected demo mode requires"):
+        Settings(api_auth_mode="protected_demo")
+
+
+def test_protected_demo_accepts_non_empty_api_key():
+    config = Settings(api_auth_mode="protected_demo", api_auth_key=SecretStr("demo-test-key"))
+    assert config.api_auth_mode == "protected_demo"
+
+
 def test_sepolia_requires_complete_configuration():
     with pytest.raises(ValidationError):
         Settings(blockchain_mode="sepolia")

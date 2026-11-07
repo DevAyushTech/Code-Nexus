@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, ThreatReport, TLSAnalysis, URLAnalysis
 from app.core.security import api_key_guard, message_analysis_guard, threat_report_guard, url_analysis_guard
-from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, DashboardSummaryResponse, FindingResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
+from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, BlockchainRegistrationResponse, BlockchainVerificationResponse, DashboardSummaryResponse, FindingResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
 from app.services.ai import explain
 from app.services.message_analysis import analyze_message
 from app.services.threat_intel import check_urlhaus
@@ -153,8 +153,8 @@ def get_threat_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> Th
     return item
 
 
-@api_router.post("/blockchain/register", dependencies=[Depends(api_key_guard)])
-def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depends(get_db)) -> dict:
+@api_router.post("/blockchain/register", response_model=BlockchainRegistrationResponse, dependencies=[Depends(api_key_guard)])
+def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depends(get_db)) -> BlockchainRegistrationResponse:
     report = db.get(AnalysisReport, payload.report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Analysis report not found.")
@@ -276,8 +276,8 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
     return {"status": "mock", "mode": "mock", "on_chain": False, "report_id": report.id, "report_hash": digest, "tx_hash": None}
 
 
-@api_router.get("/blockchain/verify/{report_id}", dependencies=[Depends(api_key_guard)])
-def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+@api_router.get("/blockchain/verify/{report_id}", response_model=BlockchainVerificationResponse, dependencies=[Depends(api_key_guard)])
+def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> BlockchainVerificationResponse:
     report = db.get(AnalysisReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Analysis report not found.")

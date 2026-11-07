@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: Literal["local", "testing", "production"] = "local"
+    api_auth_mode: Literal["demo", "protected_demo"] = "demo"
     database_url: str = "sqlite:///./nexus.db"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     request_timeout_seconds: float = 8.0
@@ -46,6 +47,7 @@ class Settings(BaseSettings):
             raise ValueError("Mainnet RPC endpoints are not supported.")
         if self.blockchain_mode == "mock":
             return self
+
         if self.blockchain_chain_id != 11155111:
             raise ValueError("Sepolia mode requires blockchain_chain_id=11155111.")
         if not self.blockchain_rpc_url or not self.blockchain_contract_address or not self.blockchain_private_key or not self.blockchain_account_address:
@@ -57,6 +59,14 @@ class Settings(BaseSettings):
         private_key = self.blockchain_private_key.get_secret_value()
         if not private_key.startswith("0x") or len(private_key) != 66:
             raise ValueError("Invalid blockchain private key format.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_api_authentication(self) -> "Settings":
+        if self.api_auth_mode == "protected_demo" and (
+            not self.api_auth_key or not self.api_auth_key.get_secret_value().strip()
+        ):
+            raise ValueError("Protected demo mode requires a non-empty API_AUTH_KEY.")
         return self
 
 
