@@ -60,15 +60,22 @@ class Settings(BaseSettings):
 
         if self.blockchain_chain_id != 11155111:
             raise ValueError("Sepolia mode requires blockchain_chain_id=11155111.")
-        if not self.blockchain_rpc_url or not self.blockchain_contract_address or not self.blockchain_private_key or not self.blockchain_account_address:
-            raise ValueError("Sepolia mode requires RPC URL, contract address, private key, and account address.")
+        if not self.blockchain_rpc_url or not self.blockchain_contract_address:
+            raise ValueError("Sepolia mode requires RPC URL and contract address.")
         if not self.blockchain_contract_address.startswith("0x") or len(self.blockchain_contract_address) != 42:
             raise ValueError("Invalid blockchain contract address.")
-        if not self.blockchain_account_address.startswith("0x") or len(self.blockchain_account_address) != 42:
+        has_private_key = bool(self.blockchain_private_key and self.blockchain_private_key.get_secret_value().strip())
+        has_account_address = bool(self.blockchain_account_address and self.blockchain_account_address.strip())
+        if has_private_key != has_account_address:
+            raise ValueError("Sepolia write mode requires both account address and private key.")
+        if self.blockchain_account_address and (
+            not self.blockchain_account_address.startswith("0x") or len(self.blockchain_account_address) != 42
+        ):
             raise ValueError("Invalid blockchain account address.")
-        private_key = self.blockchain_private_key.get_secret_value()
-        if not private_key.startswith("0x") or len(private_key) != 66:
-            raise ValueError("Invalid blockchain private key format.")
+        if self.blockchain_private_key:
+            private_key = self.blockchain_private_key.get_secret_value()
+            if not private_key.startswith("0x") or len(private_key) != 66:
+                raise ValueError("Invalid blockchain private key format.")
         return self
 
     @model_validator(mode="after")

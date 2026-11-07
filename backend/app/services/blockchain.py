@@ -147,6 +147,14 @@ class SepoliaBlockchainAdapter:
         if not self.config.blockchain_private_key or not PRIVATE_KEY_PATTERN.fullmatch(self.config.blockchain_private_key.get_secret_value()):
             raise BlockchainConfigurationError("Invalid private key format.")
 
+    def validate_read_configuration(self) -> None:
+        if self.config.blockchain_chain_id != SEPOLIA_CHAIN_ID:
+            raise BlockchainConfigurationError("Only Ethereum Sepolia chain ID 11155111 is supported.")
+        if not self.config.blockchain_contract_address or not ADDRESS_PATTERN.fullmatch(self.config.blockchain_contract_address):
+            raise BlockchainConfigurationError("Invalid Sepolia contract address.")
+        if not self.config.blockchain_rpc_url:
+            raise BlockchainConfigurationError("Sepolia RPC URL is required for verification.")
+
     def derive_account_address(self) -> str:
         self.validate_configuration()
         try:
@@ -194,7 +202,7 @@ class SepoliaBlockchainAdapter:
         return BlockchainStatus("sepolia", "validated", rpc_chain_id, self.config.blockchain_contract_address, self.config.blockchain_account_address, True)
 
     def validate_read_provider(self) -> BlockchainStatus:
-        self.validate_configuration()
+        self.validate_read_configuration()
         return self._validate_network()
 
     def _hash_bytes32(self, report_hash: str) -> bytes:
@@ -203,7 +211,7 @@ class SepoliaBlockchainAdapter:
         return bytes.fromhex(report_hash)
 
     def inspect_transaction(self, tx_hash: str, submitted_at: datetime | None = None) -> RegistrationResult:
-        status = self.validate_provider()
+        status = self.validate_read_provider()
         web3 = self._load_web3()
         submitted_at = submitted_at or datetime.now(timezone.utc)
         try:

@@ -18,6 +18,14 @@ def config():
     )
 
 
+def read_only_config():
+    return Settings(
+        blockchain_mode="sepolia",
+        blockchain_rpc_url="https://sepolia.example.invalid",
+        blockchain_contract_address="0x" + "1" * 40,
+    )
+
+
 class FakeCall:
     def __init__(self, value):
         self.value = value
@@ -116,6 +124,30 @@ def prepare_adapter(monkeypatch, eth=None, connected=True, authorized=True):
 def test_authorized_operator_check(monkeypatch):
     adapter = prepare_adapter(monkeypatch)
     assert adapter.validate_provider().status == "validated"
+
+
+def test_read_only_provider_validation_does_not_require_signer(monkeypatch):
+    adapter = SepoliaBlockchainAdapter(read_only_config())
+    adapter._web3 = FakeWeb3()
+    adapter._contract = FakeContract()
+    status = adapter.validate_read_provider()
+    assert status.status == "validated"
+    assert not status.account_address
+
+
+def test_read_only_verification_uses_contract_without_signer(monkeypatch):
+    adapter = SepoliaBlockchainAdapter(read_only_config())
+    adapter._web3 = FakeWeb3()
+    adapter._contract = FakeContract(exists=True)
+    result = adapter.verify_commitment("ab" * 32)
+    assert result.status == "confirming"
+    assert result.verified is False
+
+
+def test_write_validation_rejects_missing_signer():
+    adapter = SepoliaBlockchainAdapter(read_only_config())
+    with pytest.raises(BlockchainConfigurationError, match="account address"):
+        adapter.validate_configuration()
 
 
 def test_unauthorized_operator_rejected(monkeypatch):

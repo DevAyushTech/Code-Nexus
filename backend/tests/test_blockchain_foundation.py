@@ -26,6 +26,26 @@ def test_sepolia_requires_complete_configuration():
         Settings(blockchain_mode="sepolia")
 
 
+def test_sepolia_read_only_configuration_does_not_require_signer():
+    config = Settings(
+        blockchain_mode="sepolia",
+        blockchain_rpc_url="https://sepolia.example.invalid",
+        blockchain_contract_address="0x" + "1" * 40,
+    )
+    assert not config.blockchain_private_key.get_secret_value()
+    assert not config.blockchain_account_address
+
+
+def test_sepolia_rejects_partial_signer_configuration():
+    with pytest.raises(ValidationError, match="both account address and private key"):
+        Settings(
+            blockchain_mode="sepolia",
+            blockchain_rpc_url="https://sepolia.example.invalid",
+            blockchain_contract_address="0x" + "1" * 40,
+            blockchain_account_address="0x" + "2" * 40,
+        )
+
+
 def test_invalid_mode_is_rejected():
     with pytest.raises(ValidationError):
         Settings(blockchain_mode="mainnet")
