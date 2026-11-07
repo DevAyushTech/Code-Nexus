@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -170,8 +171,16 @@ def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryResponse
 
 
 @api_router.get("/threats", response_model=ThreatFeedResponse, dependencies=[Depends(api_key_guard)])
-def list_threats(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db)) -> ThreatFeedResponse:
-    items = db.scalars(select(ThreatReport).order_by(ThreatReport.created_at.desc()).offset(skip).limit(limit)).all()
+def list_threats(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    report_type: str | None = Query(None, pattern=r"^(url|domain|message|other)$"),
+    db: Session = Depends(get_db),
+) -> ThreatFeedResponse:
+    query = select(ThreatReport).order_by(ThreatReport.created_at.desc())
+    if report_type:
+        query = query.where(ThreatReport.report_type == report_type)
+    items = db.scalars(query.offset(skip).limit(limit)).all()
     return {"items": [ThreatReportResponse.model_validate(item) for item in items], "skip": skip, "limit": limit}
 
 
@@ -179,7 +188,11 @@ def list_threats(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100
 def create_threat_report(payload: ThreatReportCreate, db: Session = Depends(get_db)) -> ThreatReportResponse:
     item = ThreatReport(indicator="[redacted]", indicator_hash=hashlib.sha256(payload.indicator.encode()).hexdigest(), report_type=payload.report_type, description=payload.description)
     db.add(item)
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Threat report could not be saved.") from exc
     db.refresh(item)
     return item
 

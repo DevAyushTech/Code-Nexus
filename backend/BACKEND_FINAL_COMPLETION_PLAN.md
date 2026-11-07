@@ -9,7 +9,7 @@
 Nexus is a strong hackathon MVP foundation. The deterministic analysis pipeline, SSRF protections, TLS verification, provider isolation, local persistence, Sepolia adapter, and historical commitment verification are implemented and covered by focused tests. The existing suite currently reports:
 
 ```text
-101 passed, 1 warning
+106 passed, 1 warning
 ```
 
 The MVP is not yet complete for frontend handover because:
@@ -55,7 +55,7 @@ No new SaaS features, multi-tenancy, complex RBAC, password reset, job infrastru
 | Blockchain verification | IMPLEMENTED | CRITICAL | Canonical hash recomputation, receipt/confirmation checks, and read-only Sepolia verification of the existing registered report succeeded. |
 | Contract artifact/ABI | IMPLEMENTED | HIGH | Contract, ABI path, compilation, contract tests, deployment metadata, and operator authorization checks exist. |
 | SQLite compatibility | IMPLEMENTED | HIGH | Existing SQLite database was preserved, integrity checked, and used by the passing suite. |
-| PostgreSQL compatibility | PARTIALLY_IMPLEMENTED | HIGH | PostgreSQL driver/configuration and Docker service exist; migration/runtime behavior has not been verified against a live PostgreSQL instance. |
+| PostgreSQL compatibility | NOT_VERIFIED | HIGH | SQLAlchemy uses the installed psycopg driver and PostgreSQL-compatible JSON/UUID types, but Docker is unavailable in this environment, so no disposable PostgreSQL migration/runtime test was run. |
 | Alembic migrations | IMPLEMENTED | HIGH | Linear revisions `20261107_0001` through `20261107_0003` exist; local database was previously verified at `20261107_0003`. No new migration is required for the MVP plan. |
 | API schemas | PARTIALLY_IMPLEMENTED | HIGH | Analysis/dashboard/feed/threat-report schemas exist, but blockchain endpoints return untyped dictionaries and integration items remain `dict[str, Any]`. |
 | OpenAPI documentation | PARTIALLY_IMPLEMENTED | CRITICAL | Schemas appear in OpenAPI, but API-key security metadata is absent. |
@@ -64,6 +64,21 @@ No new SaaS features, multi-tenancy, complex RBAC, password reset, job infrastru
 | Docker/deployment readiness | PARTIALLY_IMPLEMENTED | HIGH | Compose starts API/PostgreSQL and local SQLite guidance exists. Static development credentials, no DB health check, and stale deployment documentation remain. |
 | Automated backend tests | IMPLEMENTED | HIGH | 92 tests pass with one existing deprecation warning. Live provider/PostgreSQL integration coverage is absent. |
 | Frontend integration documentation | PARTIALLY_IMPLEMENTED | CRITICAL | Root integration guide was updated substantially, but `backend/docs/FRONTEND_INTEGRATION.md`, `backend/docs/API_DOCUMENTATION.md`, and README contain stale auth/deployment claims. |
+
+## Phase 4 verified results — Database and Report Management
+
+The database layer was validated without modifying the existing SQLite database or migration history. SQLite connections now enable foreign-key enforcement while retaining `pool_pre_ping`; PostgreSQL continues to use the psycopg driver without SQLite-specific connection arguments. Threat-report creation now rolls back failed commits and returns a sanitized `503` response. The threat feed supports bounded offset pagination plus a safe `report_type` filter (`url`, `domain`, `message`, or `other`).
+
+Verified checks:
+
+- Existing `nexus.db`: read-only `PRAGMA integrity_check` returned `ok`; 10 tables were present.
+- Alembic: one head, `20261107_0003`; current existing revision remained unchanged.
+- Fresh disposable SQLite: `alembic upgrade head` succeeded.
+- Disposable SQLite route/model tests: report persistence, empty dashboard/feed, filtered pagination, invalid filters, foreign-key rejection, and rollback behavior passed.
+- PostgreSQL driver import: `psycopg` available.
+- PostgreSQL integration: **NOT_VERIFIED** because Docker is not installed/available; no production database was contacted.
+
+Database backup/restore procedures were added to `README.md`. PostgreSQL validation still requires a disposable instance, for example `docker compose` or an isolated PostgreSQL service, followed by `alembic upgrade head` and route persistence tests against that temporary `DATABASE_URL`; never point those tests at the existing SQLite or deployed database.d substantially, but `backend/docs/FRONTEND_INTEGRATION.md`, `backend/docs/API_DOCUMENTATION.md`, and README contain stale auth/deployment claims. |
 
 ## Phase 2 verified results — Core Threat Analysis Engine
 

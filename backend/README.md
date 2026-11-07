@@ -61,6 +61,28 @@ Do not use a mainnet key or RPC URL. Deployment and live transactions remain man
 
 Schema management uses Alembic. New databases use `python -m alembic upgrade head`. The existing `nexus.db` was preserved; before adopting migrations against an existing database, back it up, verify its schema, and run `python -m alembic stamp 20261107_0001` rather than applying the initial create migration again.
 
+## Database backup and restore
+
+Stop the local API before copying the SQLite file to obtain a consistent backup:
+
+```powershell
+Copy-Item .\nexus.db .\backups\nexus.db.$(Get-Date -Format yyyyMMddHHmmss)
+```
+
+Restore only after stopping the API and confirming the backup path:
+
+```powershell
+Copy-Item .\backups\<backup-file> .\nexus.db
+```
+
+Verify the restored file without opening it for writes:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('file:nexus.db?mode=ro', uri=True); print(c.execute('PRAGMA integrity_check').fetchone()[0]); c.close()"
+```
+
+Do not overwrite the existing database during tests. PostgreSQL backups must use the environment's approved `pg_dump`/`pg_restore` process and credentials supplied outside source control; never put database passwords in this repository.
+
 ## Docker
 
 ```powershell
