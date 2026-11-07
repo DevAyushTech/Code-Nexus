@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const PRIVATE_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 

@@ -3,8 +3,36 @@ const path = require("path");
 const hre = require("hardhat");
 
 const SEPOLIA_CHAIN_ID = 11155111;
+const DEPLOYMENT_METADATA_PATH = path.join(__dirname, "..", "deployments", "sepolia.json");
+
+function assertDeploymentMetadataDoesNotExist(destination) {
+  if (fs.existsSync(destination)) {
+    throw new Error(`Deployment metadata already exists at ${destination}; refusing to overwrite it.`);
+  }
+}
+
+function writeDeploymentMetadataAtomic(destination, metadata) {
+  const directory = path.dirname(destination);
+  const temporary = path.join(
+    directory,
+    `.${path.basename(destination)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+  );
+  const contents = JSON.stringify(metadata, null, 2) + "\n";
+
+  fs.mkdirSync(directory, { recursive: true });
+  assertDeploymentMetadataDoesNotExist(destination);
+  try {
+    fs.writeFileSync(temporary, contents, { encoding: "utf8", flag: "wx" });
+    fs.renameSync(temporary, destination);
+  } finally {
+    if (fs.existsSync(temporary)) {
+      fs.unlinkSync(temporary);
+    }
+  }
+}
 
 async function main() {
+  assertDeploymentMetadataDoesNotExist(DEPLOYMENT_METADATA_PATH);
   if (process.env.BLOCKCHAIN_MODE !== "sepolia") {
     throw new Error("Deployment requires BLOCKCHAIN_MODE=sepolia.");
   }
@@ -37,13 +65,18 @@ async function main() {
     deployer: deployerAddress,
     deploymentTransaction: deploymentTx.hash
   };
-  const destination = path.join(__dirname, "..", "deployments", "sepolia.json");
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.writeFileSync(destination, JSON.stringify(metadata, null, 2) + "\n");
+  writeDeploymentMetadataAtomic(DEPLOYMENT_METADATA_PATH, metadata);
   console.log(`ThreatRegistry deployed at ${address}.`);
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  assertDeploymentMetadataDoesNotExist,
+  writeDeploymentMetadataAtomic
+};
