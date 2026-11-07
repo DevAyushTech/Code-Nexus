@@ -9,7 +9,7 @@
 Nexus is a strong hackathon MVP foundation. The deterministic analysis pipeline, SSRF protections, TLS verification, provider isolation, local persistence, Sepolia adapter, and historical commitment verification are implemented and covered by focused tests. The existing suite currently reports:
 
 ```text
-92 passed, 1 warning
+96 passed, 1 warning
 ```
 
 The MVP is not yet complete for frontend handover because:
@@ -64,6 +64,22 @@ No new SaaS features, multi-tenancy, complex RBAC, password reset, job infrastru
 | Docker/deployment readiness | PARTIALLY_IMPLEMENTED | HIGH | Compose starts API/PostgreSQL and local SQLite guidance exists. Static development credentials, no DB health check, and stale deployment documentation remain. |
 | Automated backend tests | IMPLEMENTED | HIGH | 92 tests pass with one existing deprecation warning. Live provider/PostgreSQL integration coverage is absent. |
 | Frontend integration documentation | PARTIALLY_IMPLEMENTED | CRITICAL | Root integration guide was updated substantially, but `backend/docs/FRONTEND_INTEGRATION.md`, `backend/docs/API_DOCUMENTATION.md`, and README contain stale auth/deployment claims. |
+
+## Phase 2 verified results — Core Threat Analysis Engine
+
+Phase 2 was implemented and verified with focused tests. The URL pipeline continues to validate HTTP/HTTPS schemes, allowed ports, credentials, DNS resolution, public destinations, TLS certificates, pinned passive inspection, redirect limits, and isolated URLhaus/Safe Browsing results before persistence. The message pipeline now explicitly reports suspicious links and possible impersonation alongside existing urgency, payment, and credential findings.
+
+Analysis responses now include an `evidence_summary` separating confirmed provider matches, technical TLS/passive indicators, deterministic heuristic findings, and unavailable/inconclusive provider results. A provider with no result remains explicitly `not_configured`, `unavailable`, `rate_limited`, or `error`; it is never converted into a clean verdict. URL report retrieval reconstructs passive inspection data, and persisted message IOC URLs and AI-extracted URLs redact query values.
+
+Verified test results:
+
+```text
+Phase 2 analysis/routes: 34 passed, 1 warning
+Provider/TLS/SSRF coverage: 18 passed
+Complete suite after Phase 2: 101 passed, 1 warning
+```
+
+The tests use controlled provider responses and local fixtures. They verify behavior and privacy handling but do not constitute live validation of external provider credentials, public DNS environments, real certificate chains, or PostgreSQL.
 
 ## Incomplete feature work items
 

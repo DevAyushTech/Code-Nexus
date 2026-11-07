@@ -29,6 +29,23 @@ def test_message_detects_social_engineering() -> None:
     assert result["iocs"]["urls"] == []
 
 
+def test_message_detects_suspicious_links_and_impersonation() -> None:
+    result = analyze_message("Official security team: verify your account at https://bit.ly/secure-login immediately.")
+    names = {finding.name for finding in result["findings"]}
+    assert {"Suspicious links", "Possible impersonation"} <= names
+    assert 0 <= result["risk_score"] <= 100
+
+
+def test_empty_message_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        analyze_message("")
+
+
+def test_risk_score_is_bounded_for_many_findings() -> None:
+    result = analyze_message("urgent immediately act now payment fee gift card crypto password otp login verify security team https://bit.ly/login")
+    assert result["risk_score"] == 100
+
+
 @pytest.mark.parametrize("url", ["http://127.0.0.1", "http://localhost", "http://169.254.169.254/latest/meta-data"])
 def test_ssrf_destinations_are_blocked(url: str) -> None:
     with pytest.raises(UnsafeURL):

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, ThreatReport, TLSAnalysis, URLAnalysis
 from app.core.security import api_key_guard, message_analysis_guard, threat_report_guard, url_analysis_guard
-from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, BlockchainRegistrationResponse, BlockchainVerificationResponse, DashboardSummaryResponse, FindingResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
+from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, BlockchainRegistrationResponse, BlockchainVerificationResponse, DashboardSummaryResponse, EvidenceSummary, FindingResponse, IntegrationResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
 from app.services.ai import explain
 from app.services.message_analysis import analyze_message
 from app.services.threat_intel import check_urlhaus
@@ -29,6 +29,36 @@ _blockchain_registration_lock = threading.Lock()
 def _safe_url(url: str) -> str:
     parsed = urlsplit(url)
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _safe_integration(integration: dict) -> dict:
+    safe = dict(integration)
+    for key in ("url", "final_url"):
+        if isinstance(safe.get(key), str):
+            safe[key] = _safe_url(safe[key])
+    return safe
+
+
+def _safe_ai_analysis(ai_analysis: dict | None) -> dict | None:
+    if not ai_analysis:
+        return ai_analysis
+    safe = dict(ai_analysis)
+    if isinstance(safe.get("extracted_urls"), list):
+        safe["extracted_urls"] = [_safe_url(item) if isinstance(item, str) else item for item in safe["extracted_urls"]]
+    return safe
+
+
+def _evidence_summary(findings: list, integrations: list[dict]) -> EvidenceSummary:
+    typed = [IntegrationResponse.model_validate(_safe_integration(item)) for item in integrations]
+    confirmed = [item for item in typed if item.match is True]
+    technical = [item for item in typed if item.source in {"TLS", "passive_website_inspection"}]
+    unavailable = [item for item in typed if item.status in {"not_configured", "unavailable", "rate_limited", "error"}]
+    return EvidenceSummary(
+        confirmed_matches=confirmed,
+        technical_indicators=technical,
+        heuristic_findings=[FindingResponse.model_validate(item) for item in findings],
+        inconclusive_or_unavailable=unavailable,
+    )
 
 
 def _public_blockchain_error(exc: Exception | str) -> str:
@@ -55,6 +85,8 @@ def canonical_report_hash(report: AnalysisReport) -> str:
 
 
 def persist_analysis(db: Session, kind: str, result: dict, integrations: list[dict] | None = None, ai_analysis: dict | None = None) -> AnalysisResponse:
+    integrations = [_safe_integration(item) for item in (integrations or [])]
+    ai_analysis = _safe_ai_analysis(ai_analysis)
     report = AnalysisReport(kind=kind, target_hash=result["target_hash"], classification=result["classification"], risk_score=result["risk_score"])
     db.add(report)
     db.flush()
@@ -63,8 +95,8 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
     if kind == "url":
         safe_target = _safe_url(result["normalized_url"])
         db.add(URLAnalysis(report_id=report.id, normalized_url=safe_target, domain=result["domain"], data={"scheme": result["scheme"], "query_keys": result["query_keys"]}))
-    for integration in integrations or []:
-        if integration.get("source") in {"URLhaus", "Google Safe Browsing"}:
+    for integration in integrations:
+        if kind == "url" and integration.get("source") not in {"TLS"}:
             db.add(ThreatIntelligenceMatch(report_id=report.id, source=integration["source"], status=integration.get("status", "unavailable"), data=integration))
     if kind == "url":
         tls = next((item for item in integrations or [] if item.get("source") == "TLS"), None)
@@ -72,7 +104,9 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
             db.add(TLSAnalysis(report_id=report.id, data=tls))
         db.add(ThreatIndicator(indicator_type="domain", value_hash=hashlib.sha256(result["domain"].encode()).hexdigest(), metadata_json={"domain": result["domain"]}))
     if kind == "message":
-        db.add(ScamAnalysis(report_id=report.id, data={"iocs": result.get("iocs", {}), "ai_analysis": ai_analysis}))
+        safe_iocs = dict(result.get("iocs", {}))
+        safe_iocs["urls"] = [_safe_url(item) for item in safe_iocs.get("urls", []) if isinstance(item, str)]
+        db.add(ScamAnalysis(report_id=report.id, data={"iocs": safe_iocs, "ai_analysis": ai_analysis}))
         for indicator_type, values in result.get("iocs", {}).items():
             for value in values:
                 db.add(ThreatIndicator(indicator_type=indicator_type, value_hash=hashlib.sha256(value.encode()).hexdigest(), metadata_json={}))
@@ -82,7 +116,8 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
         db.rollback()
         raise
     target = _safe_url(result["target"]) if kind == "url" else result["target"]
-    return AnalysisResponse(id=report.id, kind=kind, target=target, classification=result["classification"], risk_score=result["risk_score"], findings=[FindingResponse.model_validate(f) for f in result["findings"]], integrations=integrations or [], evidence_quality="mixed" if integrations else "deterministic", ai_analysis=ai_analysis)
+    findings = [FindingResponse.model_validate(f) for f in result["findings"]]
+    return AnalysisResponse(id=report.id, kind=kind, target=target, classification=result["classification"], risk_score=result["risk_score"], findings=findings, integrations=integrations, evidence_quality="mixed" if integrations else "deterministic", evidence_summary=_evidence_summary(findings, integrations), ai_analysis=ai_analysis)
 
 
 @api_router.post("/analyze/url", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(url_analysis_guard)])
@@ -100,7 +135,10 @@ def analyze_url_endpoint(payload: URLAnalyzeRequest, db: Session = Depends(get_d
 
 @api_router.post("/analyze/message", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(message_analysis_guard)])
 def analyze_message_endpoint(payload: MessageAnalyzeRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
-    result = analyze_message(payload.content)
+    try:
+        result = analyze_message(payload.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     ai_result = explain([f.__dict__ for f in result["findings"]], payload.content, result["iocs"])
     ai_analysis = ai_result.get("analysis")
     return persist_analysis(db, "message", result, [ai_result], ai_analysis)
@@ -115,12 +153,13 @@ def get_report(report_id: uuid.UUID, db: Session = Depends(get_db)) -> AnalysisR
     if report.kind == "url" and report.url_analysis:
         target = report.url_analysis.normalized_url
     scam = db.scalar(select(ScamAnalysis).where(ScamAnalysis.report_id == report.id))
-    ai_analysis = scam.data.get("ai_analysis") if scam else None
-    integrations = [match.data for match in db.scalars(select(ThreatIntelligenceMatch).where(ThreatIntelligenceMatch.report_id == report.id)).all()]
+    ai_analysis = _safe_ai_analysis(scam.data.get("ai_analysis")) if scam else None
+    integrations = [_safe_integration(match.data) for match in db.scalars(select(ThreatIntelligenceMatch).where(ThreatIntelligenceMatch.report_id == report.id)).all()]
     tls = db.scalar(select(TLSAnalysis).where(TLSAnalysis.report_id == report.id))
     if tls:
-        integrations.append(tls.data)
-    return AnalysisResponse(id=report.id, kind=report.kind, target=target, classification=report.classification, risk_score=report.risk_score, findings=[FindingResponse.model_validate(f) for f in report.findings], integrations=integrations, evidence_quality="mixed" if integrations else "deterministic", ai_analysis=ai_analysis)
+        integrations.append(_safe_integration(tls.data))
+    findings = [FindingResponse.model_validate(f) for f in report.findings]
+    return AnalysisResponse(id=report.id, kind=report.kind, target=target, classification=report.classification, risk_score=report.risk_score, findings=findings, integrations=integrations, evidence_quality="mixed" if integrations else "deterministic", evidence_summary=_evidence_summary(findings, integrations), ai_analysis=ai_analysis)
 
 
 @api_router.get("/dashboard/summary", response_model=DashboardSummaryResponse, dependencies=[Depends(api_key_guard)])

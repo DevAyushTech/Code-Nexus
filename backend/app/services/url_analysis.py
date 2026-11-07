@@ -28,7 +28,7 @@ def analyze_url(raw_url: str) -> dict:
     if len(labels) > 4:
         findings.append(Finding("Deep subdomain structure", "low", host, "deterministic", "An unusually deep hostname can obscure the effective registered domain.", "Inspect the registrable domain before trusting the page.", 8))
     if parsed.query and len(parsed.query) > 400:
-        findings.append(Finding("Large query string", "low", parsed.query[:120], "deterministic", "A large query string may contain tracking or obfuscated data.", "Avoid sharing sensitive query parameters.", 5))
+        findings.append(Finding("Large query string", "low", f"{len(parse_qs(parsed.query))} query keys", "deterministic", "A large query string may contain tracking or obfuscated data.", "Avoid sharing sensitive query parameters.", 5))
     score, classification = assess(findings)
     return {
         "target": raw_url,

@@ -32,6 +32,13 @@ class IntegrationResponse(BaseModel):
     error: str | None = None
 
 
+class EvidenceSummary(BaseModel):
+    confirmed_matches: list[IntegrationResponse] = Field(default_factory=list)
+    technical_indicators: list[IntegrationResponse] = Field(default_factory=list)
+    heuristic_findings: list[FindingResponse] = Field(default_factory=list)
+    inconclusive_or_unavailable: list[IntegrationResponse] = Field(default_factory=list)
+
+
 class AnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -42,6 +49,7 @@ class AnalysisResponse(BaseModel):
     findings: list[FindingResponse]
     integrations: list[IntegrationResponse] = []
     evidence_quality: str = "deterministic"
+    evidence_summary: EvidenceSummary = Field(default_factory=EvidenceSummary)
     ai_analysis: dict[str, Any] | None = None
 
 

@@ -66,6 +66,32 @@ def test_report_can_be_retrieved(client):
     assert fetched.json()["target"] == "[message redacted]"
 
 
+def test_url_report_retrieval_preserves_safe_integrations_and_evidence_groups(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(router, "check_urlhaus", lambda url: {"source": "URLhaus", "status": "completed", "match": True, "evidence": {"threat": "malware"}})
+    monkeypatch.setattr(router, "check_safe_browsing", lambda url: {"source": "Google Safe Browsing", "status": "unavailable", "match": False, "error": "timeout"})
+    created = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com/login?token=private-value"})
+    assert created.status_code == 201
+    report_id = created.json()["id"]
+    fetched = test_client.get(f"/api/v1/reports/{report_id}")
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert any(item["source"] == "passive_website_inspection" for item in body["integrations"])
+    assert len(body["evidence_summary"]["confirmed_matches"]) == 1
+    assert len(body["evidence_summary"]["inconclusive_or_unavailable"]) == 1
+    assert "private-value" not in str(body)
+
+
+def test_message_report_does_not_persist_url_query_values(client):
+    test_client, session_factory = client
+    response = test_client.post("/api/v1/analyze/message", json={"content": "Open https://example.com/login?token=private-value"})
+    assert response.status_code == 201
+    with session_factory() as db:
+        scam = db.scalar(select(ScamAnalysis))
+        assert scam is not None
+        assert "private-value" not in str(scam.data)
+
+
 def test_new_url_reports_redact_query_values(client):
     test_client, session_factory = client
     response = test_client.post("/api/v1/analyze/url", json={"url": "https://example.com/login?token=private-value"})
