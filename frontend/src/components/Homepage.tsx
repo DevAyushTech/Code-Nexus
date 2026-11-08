@@ -43,28 +43,28 @@ interface InsightCard {
 
 const workflow: InsightCard[] = [
   {
-    label: "INPUT / 01",
-    title: "Submit a target",
-    body: "Enter a link in the Threat Console to start an inspection.",
-    detail: "The prototype queues the URL in local state for analyst review.",
+    label: "TARGET / 01",
+    title: "Submit a URL or message",
+    body: "Choose a web address or paste suspicious message content for analysis.",
+    detail: "URLs are validated as HTTP or HTTPS; a missing scheme defaults to HTTPS. Message input is trimmed before submission.",
   },
   {
-    label: "CONFIGURATION / 02",
-    title: "Choose parameters",
-    body: "Select the checks and timeout that fit the investigation.",
-    detail: "Phishing, TLS, deceptive-ad and credential checks can be toggled.",
+    label: "EXECUTION / 02",
+    title: "Route to the analysis API",
+    body: "The console submits the selected target to the public threat analysis service.",
+    detail: "URL and message payloads use dedicated analysis endpoints. The console reports the returned analysis or an explicit request error.",
   },
   {
-    label: "ASSESSMENT / 03",
-    title: "Review the verdict",
-    body: "Inspect the result and record a finding in the threat log.",
-    detail: "Severity and analyst notes remain editable in the local prototype.",
+    label: "VERDICT / 03",
+    title: "Read the evidence-led report",
+    body: "Review the backend classification, risk score, findings and signal-source status.",
+    detail: "Findings include severity, evidence and recommendations when returned. INCONCLUSIVE means evidence or integrations may be unavailable—not that the target is safe.",
   },
   {
-    label: "MONITORING / 04",
-    title: "Track patterns",
-    body: "Use recorded findings to follow recurring threat activity.",
-    detail: "Compare categories and severity across the entries you have logged.",
+    label: "INTEGRITY / 04",
+    title: "Verify the report record",
+    body: "Optionally check a completed report’s verification status using its report ID.",
+    detail: "The response identifies verification mode and source, report hash, and whether an on-chain registration exists; registration is never assumed.",
   },
 ];
 
