@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_env: Literal["local", "testing", "production"] = "local"
     api_auth_mode: Literal["demo", "protected_demo"] = "demo"
     database_url: str = "sqlite:///./nexus.db"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"])
     request_timeout_seconds: float = 8.0
     max_response_bytes: int = 1_000_000
     max_redirects: int = 5
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     message_analysis_rate_limit: int = 10
     threat_report_rate_limit: int = 5
     api_auth_key: SecretStr | None = None
+    supabase_project_url: str = "https://zbtbesczdshgfgcxueev.supabase.co"
+    supabase_jwks_url: str = "https://zbtbesczdshgfgcxueev.supabase.co/auth/v1/.well-known/jwks.json"
+    supabase_jwt_issuer: str = "https://zbtbesczdshgfgcxueev.supabase.co/auth/v1"
+    supabase_jwt_audience: str = "authenticated"
+    supabase_jwt_algorithms: list[str] = Field(default_factory=lambda: ["ES256"])
     urlhaus_api_url: str = "https://urlhaus-api.abuse.ch/v1/url/"
     urlhaus_auth_key: SecretStr | None = None
     google_safe_browsing_key: SecretStr | None = None

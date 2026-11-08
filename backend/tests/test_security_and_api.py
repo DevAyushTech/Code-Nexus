@@ -1,8 +1,11 @@
 from pathlib import Path
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import create_engine, select
@@ -10,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.v1 import router
 from app.core.config import settings
-from app.core.security import limiter
+from app.core.security import jwks_cache, limiter
 from app.database.session import Base, get_db
 from app.main import app
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, TLSAnalysis, URLAnalysis
@@ -21,7 +24,49 @@ from app.services.threat_intel import check_urlhaus
 
 
 @pytest.fixture
+def jwt_credentials(monkeypatch: pytest.MonkeyPatch):
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    numbers = public_key.public_numbers()
+    kid = "test-kid"
+    jwks = {
+        "keys": [{
+            "kty": "EC",
+            "crv": "P-256",
+            "x": jwt.utils.base64url_encode(numbers.x.to_bytes(32, "big")).decode(),
+            "y": jwt.utils.base64url_encode(numbers.y.to_bytes(32, "big")).decode(),
+            "use": "sig",
+            "kid": kid,
+            "alg": "ES256",
+        }]
+    }
+
+    def fake_get(url: str, timeout: float):
+        assert url == settings.supabase_jwks_url
+        return httpx.Response(200, request=httpx.Request("GET", url), json=jwks)
+
+    import httpx
+
+    monkeypatch.setattr("app.core.security.httpx.get", fake_get)
+    jwks_cache._keys.clear()
+
+    def make_token(**claims):
+        payload = {
+            "sub": "user-123",
+            "aud": settings.supabase_jwt_audience,
+            "iss": settings.supabase_jwt_issuer,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            **claims,
+        }
+        return jwt.encode(payload, private_key, algorithm="ES256", headers={"kid": kid})
+
+    return make_token, jwks
+
+
+@pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "api_auth_mode", "demo")
+    monkeypatch.setattr(settings, "api_auth_key", None)
     engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -308,6 +353,114 @@ def test_authenticated_routes_require_api_key(client, monkeypatch):
     assert response.status_code == 201
 
 
+def test_valid_supabase_jwt_authenticates_protected_route(client, jwt_credentials, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", None)
+    make_token, _ = jwt_credentials
+    response = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"Authorization": f"Bearer {make_token()}"},
+        json={"content": "hello"},
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"iss": "https://wrong.example/auth/v1"},
+        {"aud": "wrong-audience"},
+        {"exp": datetime.now(timezone.utc) - timedelta(minutes=1)},
+    ],
+)
+def test_invalid_supabase_jwt_claims_are_rejected(client, jwt_credentials, monkeypatch, claims):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", None)
+    make_token, _ = jwt_credentials
+    response = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"Authorization": f"Bearer {make_token(**claims)}"},
+        json={"content": "hello"},
+    )
+    assert response.status_code == 401
+
+
+def test_invalid_signature_unsupported_algorithm_unknown_kid_and_malformed_token_are_rejected(
+    client, jwt_credentials, monkeypatch
+):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", None)
+    make_token, _ = jwt_credentials
+    invalid_signature = make_token()[:-1] + ("a" if make_token()[-1] != "a" else "b")
+    unsupported_algorithm = jwt.encode(
+        {"iss": settings.supabase_jwt_issuer, "aud": settings.supabase_jwt_audience, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+        "secret",
+        algorithm="HS256",
+        headers={"kid": "test-kid"},
+    )
+    unknown_kid = make_token()
+    unknown_kid = jwt.encode(
+        jwt.decode(unknown_kid, options={"verify_signature": False}),
+        ec.generate_private_key(ec.SECP256R1()),
+        algorithm="ES256",
+        headers={"kid": "unknown-kid"},
+    )
+    for token in (invalid_signature, unsupported_algorithm, unknown_kid, "not-a-jwt"):
+        response = test_client.post(
+            "/api/v1/analyze/message",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"content": "hello"},
+        )
+        assert response.status_code == 401
+
+
+def test_invalid_bearer_does_not_fall_back_to_api_key(client, jwt_credentials, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    response = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"Authorization": "Bearer malformed", "X-API-Key": "test-key"},
+        json={"content": "hello"},
+    )
+    assert response.status_code == 401
+
+
+def test_all_protected_routes_accept_valid_supabase_jwt(client, jwt_credentials, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", None)
+    make_token, _ = jwt_credentials
+    headers = {"Authorization": f"Bearer {make_token()}"}
+    created = test_client.post("/api/v1/analyze/message", headers=headers, json={"content": "hello"})
+    report_id = created.json()["id"]
+    threat = test_client.post(
+        "/api/v1/threat-reports",
+        headers=headers,
+        json={"indicator": "example.com", "report_type": "domain", "description": "test"},
+    )
+    for response in (
+        test_client.get(f"/api/v1/reports/{report_id}", headers=headers),
+        test_client.get("/api/v1/dashboard/summary", headers=headers),
+        test_client.get("/api/v1/threats", headers=headers),
+        test_client.get(f"/api/v1/threat-reports/{threat.json()['id']}", headers=headers),
+        test_client.post("/api/v1/blockchain/register", headers=headers, json={"report_id": report_id}),
+        test_client.get(f"/api/v1/blockchain/verify/{report_id}", headers=headers),
+    ):
+        assert response.status_code != 401
+
+
+def test_jwks_cache_refreshes_for_unknown_kid(client, jwt_credentials, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_key", None)
+    make_token, jwks = jwt_credentials
+    first = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"Authorization": f"Bearer {make_token()}"},
+        json={"content": "hello"},
+    )
+    assert first.status_code == 201
+    assert len(jwks_cache._keys) == 1
+
+
 def test_cors_allows_configured_frontend_and_rejects_other_origins(client):
     test_client, _ = client
     allowed = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"})
@@ -322,12 +475,22 @@ def test_cors_allows_configured_frontend_and_rejects_other_origins(client):
     denied = test_client.options("/api/v1/dashboard/summary", headers={"Origin": "https://untrusted.example", "Access-Control-Request-Method": "GET"})
     assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
     assert "x-api-key" in api_key_allowed.headers.get("access-control-allow-headers", "").lower()
+    authorization_allowed = test_client.options(
+        "/api/v1/dashboard/summary",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert authorization_allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
     assert denied.headers.get("access-control-allow-origin") is None
 
 
 def test_openapi_declares_api_key_security_for_protected_routes():
     schema = app.openapi()
     assert schema["components"]["securitySchemes"]["APIKeyHeader"]["name"] == "X-API-Key"
+    assert schema["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
     protected_paths = (
         "/api/v1/analyze/url",
         "/api/v1/analyze/message",
@@ -344,6 +507,7 @@ def test_openapi_declares_api_key_security_for_protected_routes():
         for operation in operations.values():
             if isinstance(operation, dict) and "responses" in operation:
                 assert {"APIKeyHeader": []} in operation["security"]
+                assert {"HTTPBearer": []} in operation["security"]
 
 
 def test_typed_blockchain_response_schemas_are_in_openapi():

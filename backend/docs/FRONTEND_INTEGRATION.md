@@ -10,20 +10,26 @@ Run the backend from `backend`:
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Local development normally uses the existing SQLite URL. A protected demo deployment must use `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY`; local `API_AUTH_MODE=demo` permits requests without a key and must not be exposed to judges.
+Local development normally uses the existing SQLite URL. A protected deployment must use `API_AUTH_MODE=protected_demo`. Supabase Auth handles email sign-up/login and supplies the access token; the backend verifies it locally using the project's public JWKS. The legacy API key remains available for compatibility.
 
 The configured frontend origin must be present in `CORS_ORIGINS`. The backend allows `GET`, `POST`, and the `Content-Type`, `Authorization`, and `X-API-Key` request headers. CORS credentials are disabled.
 
 ## Authentication
 
-Every `/api/v1/*` route is protected by the shared demo/admin key. Send:
+After signing up or logging in with Supabase Auth, send the returned access token to protected routes:
 
 ```http
-X-API-Key: <demo-key>
+Authorization: Bearer <supabase-access-token>
 Content-Type: application/json
 ```
 
-Missing or invalid keys return `401` with `{"detail":"Valid API key required."}` when a key is configured. Health routes are public. Never embed the key in browser JavaScript, a committed frontend `.env` file, or a public bundle. For this single-admin MVP, call the backend through a same-origin server-side proxy or have the demo operator enter/configure the key in a private runtime boundary; do not add a browser-exposed secret.
+Supabase access tokens must be valid, unexpired ES256 JWTs issued for this project with audience `authenticated`. Missing or invalid credentials return `401`; an invalid bearer token never falls back to `X-API-Key`. Health routes are public. The existing API-key alternative is:
+
+```http
+X-API-Key: <demo-key>
+```
+
+Never expose the API key, Supabase secret key, or service-role key in browser code or a public bundle.
 
 ## Endpoint contract
 

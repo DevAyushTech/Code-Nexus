@@ -4,7 +4,9 @@ The canonical field-level frontend contract is [FRONTEND_INTEGRATION.md](FRONTEN
 
 Base URL: `http://localhost:8000`.
 
-Authentication uses one shared demo/admin API key. Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. In protected demo mode, send `X-API-Key` on every protected endpoint below. Missing or invalid keys return `401`; configured per-client limits return `429`. `API_AUTH_MODE=demo` is intended only for local development and permits an empty key.
+Protected endpoints accept either a Supabase Auth access token or the existing shared API key. Obtain an access token after email sign-up/login with Supabase Auth, then send `Authorization: Bearer <access_token>`. JWTs are verified against the configured Supabase JWKS and must use ES256 with the configured issuer and `authenticated` audience. The legacy `X-API-Key` remains supported during migration. Invalid bearer tokens return `401` and are never replaced by API-key authentication.
+
+Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. In protected demo mode, either credential is required. `API_AUTH_MODE=demo` is intended only for local development and permits requests without credentials. Configured per-client limits return `429`.
 
 - `GET /health` returns service status.
 - `GET /health/ready` checks database readiness and returns `503` if the database is unavailable.
@@ -32,10 +34,10 @@ Protected endpoints:
 Example:
 
 ```powershell
-curl.exe -H "X-API-Key: <demo-key>" http://localhost:8000/api/v1/dashboard/summary
+curl.exe -H "Authorization: Bearer <supabase-access-token>" http://localhost:8000/api/v1/dashboard/summary
 ```
 
-The generated OpenAPI document at `/docs` declares the `X-API-Key` API-key scheme for these operations.
+The generated OpenAPI document at `/docs` declares both bearer and `X-API-Key` security schemes for these operations.
 
 Mock responses include `mode: "mock"` and `on_chain: false`; they never represent a blockchain transaction. Sepolia responses include `mode: "sepolia"` and explicit transaction states: `pending`, `submitted`, `confirming`, `confirmed`, `failed`, `reverted`, or `timeout`. A grounded Sepolia Etherscan `explorer_url` is included only when a transaction hash is persisted. There is no automatic fallback to mock mode.
 
