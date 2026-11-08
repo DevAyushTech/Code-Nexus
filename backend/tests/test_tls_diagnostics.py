@@ -1,8 +1,9 @@
 import ssl
+import socket
 
 import pytest
 
-from app.services import tls, website
+from app.services import ssrf, tls, website
 
 
 def certificate_error(code: int, message: str) -> ssl.SSLCertVerificationError:
@@ -93,3 +94,16 @@ def test_passive_inspection_reports_certificate_failure(monkeypatch):
     assert result["verification_code"] == 62
     assert result["verification_message"] == "hostname mismatch"
     assert "token" not in str(result)
+
+
+
+def test_public_url_prefers_ipv4_when_dns_returns_ipv6_first(monkeypatch):
+    records = [
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700:4700::1111", 443, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443)),
+    ]
+    monkeypatch.setattr(ssrf.socket, "getaddrinfo", lambda *args, **kwargs: records)
+
+    destination = ssrf.resolve_public_url("https://example.com")
+
+    assert destination.address == "1.1.1.1"
