@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set outside source control}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      API_AUTH_MODE: ${API_AUTH_MODE:-protected_demo}
+      API_AUTH_KEY: ${API_AUTH_KEY:?API_AUTH_KEY must be set outside source control}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set outside source control}@db:5432/${POSTGRES_DB:-nexus}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      BLOCKCHAIN_MODE: ${BLOCKCHAIN_MODE:-mock}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:

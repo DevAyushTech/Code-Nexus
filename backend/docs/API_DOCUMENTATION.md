@@ -1,0 +1,95 @@
+# API contract
+
+The canonical field-level frontend contract is [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md). The developer handover is [../FRONTEND_HANDOVER.md](../FRONTEND_HANDOVER.md).
+
+Base URL: `http://localhost:8000`.
+
+Public Demo Mode is enabled explicitly with `PUBLIC_DEMO_MODE=true`. In that mode, health, URL analysis, message analysis, and read-only blockchain verification are accessible without credentials. Rate limits, validation, SSRF protections, CORS, and blockchain verification remain active.
+
+Reports, dashboard summaries, threat feeds, threat-report operations, and blockchain registration remain private even when Public Demo Mode is enabled. They accept either a Supabase Auth access token or the existing shared API key. Obtain an access token after email sign-up/login with Supabase Auth, then send `Authorization: Bearer <access_token>`. JWTs are verified against the configured Supabase JWKS and must use ES256 with the configured issuer and `authenticated` audience. The legacy `X-API-Key` remains supported during migration. Invalid bearer tokens return `401` and are never replaced by API-key authentication.
+
+Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. This keeps private endpoints protected while Public Demo Mode exposes only the explicitly selected demo routes. `API_AUTH_MODE=demo` is intended only for local development. Configured per-client limits return `429`.
+
+- `GET /health` returns service status.
+- `GET /health/ready` checks database readiness and returns `503` if the database is unavailable.
+- `POST /api/v1/analyze/url` accepts `{"url":"https://example.com"}` and returns a report with `id`, `classification`, `risk_score`, `findings`, and integration statuses.
+- `POST /api/v1/analyze/message` accepts `{"content":"..."}`. Message content is not returned.
+- `GET /api/v1/reports/{id}` retrieves an analysis report.
+- `GET /api/v1/dashboard/summary` returns counts by classification.
+- `GET /api/v1/threats?skip=0&limit=50&report_type=url` lists threat reports with bounded pagination and optional type filtering.
+- `POST /api/v1/threat-reports` accepts `indicator`, `report_type`, and `description`; the indicator is hashed and redacted in storage.
+- `POST /api/v1/blockchain/register` accepts `{"report_id":"..."}` and creates a local cryptographic commitment in mock mode. In explicit Sepolia mode it submits the commitment to the configured deployed contract and returns receipt metadata only after a successful receipt.
+- `GET /api/v1/blockchain/verify/{report_id}` returns local commitment status in mock mode, or queries `verifyThreat` on the configured Sepolia contract.
+
+Public Demo Mode endpoints:
+
+- `GET /health`
+- `GET /health/ready`
+- `POST /api/v1/analyze/url`
+- `POST /api/v1/analyze/message`
+- `GET /api/v1/blockchain/verify/{id}`
+
+Protected endpoints:
+
+- `GET /api/v1/reports/{id}`
+- `GET /api/v1/dashboard/summary`
+- `GET /api/v1/threats`
+- `POST /api/v1/threat-reports`
+- `GET /api/v1/threat-reports/{id}`
+- `POST /api/v1/blockchain/register`
+
+Example:
+
+```powershell
+curl.exe -H "Authorization: Bearer <supabase-access-token>" http://localhost:8000/api/v1/dashboard/summary
+```
+
+The generated OpenAPI document at `/docs` declares both bearer and `X-API-Key` security schemes for these operations.
+
+Mock responses include `mode: "mock"` and `on_chain: false`; they never represent a blockchain transaction. Sepolia responses include `mode: "sepolia"` and explicit transaction states: `pending`, `submitted`, `confirming`, `confirmed`, `failed`, `reverted`, or `timeout`. A grounded Sepolia Etherscan `explorer_url` is included only when a transaction hash is persisted. There is no automatic fallback to mock mode.
+
+When explicitly configured for Sepolia and a deployed contract, registration returns `mode: "sepolia"`, the actual `tx_hash`, `chain_id`, `contract_address`, receipt block, gas used, and confirmation count. It returns `status: "confirmed"` only after a successful receipt. RPC, configuration, authorization, gas, revert, and timeout failures are returned as explicit HTTP errors; no automatic mock fallback occurs.
+
+Verification recomputes the canonical report commitment from the current database report and queries `verifyThreat(bytes32)`. Sepolia verification returns `verification_source: "sepolia"` and one of `verified`, `not_registered`, `mismatch`, `pending`, `confirming`, `rpc_unavailable`, or `invalid_configuration`. `verified: true` requires a matching on-chain record, a successful receipt when a transaction hash is available, and the configured confirmation depth. Mock verification returns `verification_source: "local_mock"`, `mode: "mock"`, `on_chain: false`, and never claims on-chain verification.
+
+Example mock verification:
+
+```json
+{"verified": false, "status": "not_registered", "mode": "mock", "verification_source": "local_mock", "on_chain": false, "report_hash": "…", "tx_hash": null}
+```
+
+Example confirmed Sepolia verification:
+
+```json
+{"verified": true, "status": "verified", "mode": "sepolia", "verification_source": "sepolia", "on_chain": true, "chain_id": 11155111, "contract_address": "0x…", "reporter": "0x…", "on_chain_timestamp": 1730000000, "confirmations": 4, "receipt_status": 1}
+```
+
+Analysis responses include `evidence_quality`, `evidence_summary`, `ai_analysis` (null when unavailable), and each finding includes `confidence`. A completed message AI object has `scam_indicators`, `extracted_urls`, `extracted_emails`, `extracted_phone_numbers`, `explanation`, `recommendations`, and `confidence` (0-1). Integration objects use `not_configured`, `unavailable`, `error`, `rate_limited`, `inconclusive`, or `completed` statuses. A completed no-match is not equivalent to an unavailable or inconclusive provider.
+
+Example completed message response:
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "kind": "message",
+  "target": "[message redacted]",
+  "classification": "SUSPICIOUS",
+  "risk_score": 43,
+  "findings": [],
+  "integrations": [
+    {"source": "AI", "status": "completed", "analysis": {"scam_indicators": ["urgency manipulation"], "extracted_urls": [], "extracted_emails": [], "extracted_phone_numbers": [], "explanation": "Evidence-backed interpretation.", "recommendations": ["Verify independently."], "confidence": 0.91}}
+  ],
+  "evidence_quality": "mixed",
+  "ai_analysis": {
+    "scam_indicators": ["urgency manipulation"],
+    "extracted_urls": [],
+    "extracted_emails": [],
+    "extracted_phone_numbers": [],
+    "explanation": "Evidence-backed interpretation.",
+    "recommendations": ["Verify independently."],
+    "confidence": 0.91
+  }
+}
+```
+
+Errors use `{"detail":"..."}` for validation and resource errors, or `{"error":{"code":"internal_error","message":"..."}}` for unexpected failures.

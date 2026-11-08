@@ -1,0 +1,2 @@
+# Blockchain support is included in the canonical production requirements.
+-r requirements.txt
