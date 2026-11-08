@@ -1,5 +1,6 @@
 import ssl
 from urllib.parse import urlparse
+import re
 
 from app.core.config import settings
 from app.services.ssrf import UnsafeURL, open_pinned_response, resolve_redirect, ssl_error_details
@@ -39,4 +40,9 @@ def inspect_website(url: str) -> dict:
         return {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects, **ssl_error_details(exc, hostname)}
     except (OSError, UnsafeURL, ValueError) as exc:
         hostname = urlparse(current).hostname or ""
-        return {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects, "error_hostname": hostname}
+        detail = getattr(exc, "strerror", None) or (str(exc) if isinstance(exc, UnsafeURL) else "")
+        safe_detail = re.sub(r"[^A-Za-z0-9 .:_-]", "", str(detail))[:120] or None
+        result = {"source": "passive_website_inspection", "status": "unavailable", "error": type(exc).__name__, "redirects": redirects, "error_hostname": hostname, "error_detail": safe_detail}
+        if isinstance(exc, OSError) and isinstance(exc.errno, int):
+            result["error_errno"] = exc.errno
+        return result
