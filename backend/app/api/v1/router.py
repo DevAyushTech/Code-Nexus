@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.models import AnalysisReport, BlockchainRecord, ScamAnalysis, SecurityFinding, ThreatIndicator, ThreatIntelligenceMatch, ThreatReport, TLSAnalysis, URLAnalysis
-from app.core.security import api_key_guard, message_analysis_guard, threat_report_guard, url_analysis_guard
+from app.core.security import api_key_guard, public_blockchain_verify_guard, public_message_analysis_guard, public_url_analysis_guard, threat_report_guard
 from app.schemas.api import AnalysisResponse, BlockchainRegisterRequest, BlockchainRegistrationResponse, BlockchainVerificationResponse, DashboardSummaryResponse, EvidenceSummary, FindingResponse, IntegrationResponse, MessageAnalyzeRequest, ThreatFeedResponse, ThreatReportCreate, ThreatReportResponse, URLAnalyzeRequest
 from app.services.ai import explain
 from app.services.message_analysis import analyze_message
@@ -125,7 +125,7 @@ def persist_analysis(db: Session, kind: str, result: dict, integrations: list[di
     return AnalysisResponse(id=report.id, kind=kind, target=target, classification=result["classification"], risk_score=result["risk_score"], findings=findings, integrations=integrations, evidence_quality="mixed" if integrations else "deterministic", evidence_summary=_evidence_summary(findings, integrations), ai_analysis=ai_analysis)
 
 
-@api_router.post("/analyze/url", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(url_analysis_guard)])
+@api_router.post("/analyze/url", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(public_url_analysis_guard)])
 def analyze_url_endpoint(payload: URLAnalyzeRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
     try:
         result = analyze_url(str(payload.url))
@@ -138,7 +138,7 @@ def analyze_url_endpoint(payload: URLAnalyzeRequest, db: Session = Depends(get_d
     return persist_analysis(db, "url", result, [integration, safe_browsing, {"source": "TLS", **inspect_tls(result["domain"])}, inspect_website(str(payload.url))])
 
 
-@api_router.post("/analyze/message", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(message_analysis_guard)])
+@api_router.post("/analyze/message", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(public_message_analysis_guard)])
 def analyze_message_endpoint(payload: MessageAnalyzeRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
     try:
         result = analyze_message(payload.content)
@@ -332,7 +332,7 @@ def register_blockchain(payload: BlockchainRegisterRequest, db: Session = Depend
     return {"status": "mock", "mode": "mock", "on_chain": False, "report_id": report.id, "report_hash": digest, "tx_hash": None}
 
 
-@api_router.get("/blockchain/verify/{report_id}", response_model=BlockchainVerificationResponse, dependencies=[Depends(api_key_guard)])
+@api_router.get("/blockchain/verify/{report_id}", response_model=BlockchainVerificationResponse, dependencies=[Depends(public_blockchain_verify_guard)])
 def verify_blockchain(report_id: uuid.UUID, db: Session = Depends(get_db)) -> BlockchainVerificationResponse:
     report = db.get(AnalysisReport, report_id)
     if not report:

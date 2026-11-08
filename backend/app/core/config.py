@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     app_env: Literal["local", "testing", "production"] = "local"
     api_auth_mode: Literal["demo", "protected_demo"] = "demo"
+    public_demo_mode: bool = False
     database_url: str = "sqlite:///./nexus.db"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"])
     request_timeout_seconds: float = 8.0
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     url_analysis_rate_limit: int = 10
     message_analysis_rate_limit: int = 10
     threat_report_rate_limit: int = 5
+    blockchain_verify_rate_limit: int = 30
     api_auth_key: SecretStr | None = None
     supabase_project_url: str = "https://zbtbesczdshgfgcxueev.supabase.co"
     supabase_jwks_url: str = "https://zbtbesczdshgfgcxueev.supabase.co/auth/v1/.well-known/jwks.json"

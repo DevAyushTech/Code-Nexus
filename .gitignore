@@ -9,3 +9,4 @@ alembic/versions/*
 artifacts/
 cache/
 deployments/
+backend/scripts/get_supabase_test_token.py

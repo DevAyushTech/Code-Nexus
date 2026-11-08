@@ -67,6 +67,7 @@ def jwt_credentials(monkeypatch: pytest.MonkeyPatch):
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "api_auth_mode", "demo")
     monkeypatch.setattr(settings, "api_auth_key", None)
+    monkeypatch.setattr(settings, "public_demo_mode", False)
     engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -83,6 +84,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(router, "inspect_tls", lambda host: {"status": "valid", "expires_at": None})
     monkeypatch.setattr(router, "inspect_website", lambda url: {"source": "passive_website_inspection", "status": "completed"})
     yield TestClient(app), session_factory
+    settings.public_demo_mode = False
+    settings.api_auth_mode = "demo"
+    settings.api_auth_key = None
     app.dependency_overrides.clear()
     engine.dispose()
 
@@ -174,6 +178,100 @@ def test_sensitive_read_routes_use_demo_api_key(client, monkeypatch):
     assert test_client.get("/api/v1/dashboard/summary").status_code == 401
     assert test_client.get("/api/v1/threats").status_code == 401
     assert test_client.get("/api/v1/dashboard/summary", headers={"X-API-Key": "test-key"}).status_code == 200
+
+
+def test_public_demo_mode_scopes_anonymous_access(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", True)
+
+    analysis = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+    assert analysis.status_code == 201
+    report_id = analysis.json()["id"]
+
+    assert test_client.get("/api/v1/reports/" + report_id).status_code == 401
+    assert test_client.get("/api/v1/dashboard/summary").status_code == 401
+    assert test_client.get("/api/v1/threats").status_code == 401
+    assert test_client.post(
+        "/api/v1/threat-reports",
+        json={"indicator": "example.com", "report_type": "domain", "description": "test"},
+    ).status_code == 401
+    assert test_client.get(f"/api/v1/threat-reports/{report_id}").status_code == 401
+    assert test_client.post("/api/v1/blockchain/register", json={"report_id": report_id}).status_code == 401
+
+    verification = test_client.get(f"/api/v1/blockchain/verify/{report_id}")
+    assert verification.status_code == 200
+    assert not {"target", "findings", "integrations", "ai_analysis"} & verification.json().keys()
+    settings.public_demo_mode = False
+
+
+def test_public_demo_mode_rejects_invalid_bearer_token(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", True)
+
+    response = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"Authorization": "Bearer invalid-token"},
+        json={"content": "hello"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_public_demo_mode_rejects_invalid_api_key(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", True)
+
+    response = test_client.post(
+        "/api/v1/analyze/message",
+        headers={"X-API-Key": "invalid-key"},
+        json={"content": "hello"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_protected_demo_rejects_anonymous_analysis_when_public_demo_disabled(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", False)
+
+    response = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+
+    assert response.status_code == 401
+
+
+def test_public_demo_mode_allows_anonymous_analysis(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", True)
+
+    response = test_client.post("/api/v1/analyze/message", json={"content": "hello"})
+
+    assert response.status_code == 201
+
+
+def test_public_demo_mode_preserves_input_validation_and_rate_limits(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr(settings, "api_auth_mode", "protected_demo")
+    monkeypatch.setattr(settings, "api_auth_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "public_demo_mode", True)
+    monkeypatch.setattr(settings, "message_analysis_rate_limit", 1)
+    limiter._events.clear()
+
+    invalid = test_client.post("/api/v1/analyze/message", json={"content": ""})
+    assert invalid.status_code == 422
+    limiter._events.clear()
+    assert test_client.post("/api/v1/analyze/message", json={"content": "hello"}).status_code == 201
+    assert test_client.post("/api/v1/analyze/message", json={"content": "hello"}).status_code == 429
+    settings.public_demo_mode = False
 
 
 def test_readiness_reports_database_status(client):
@@ -492,15 +590,12 @@ def test_openapi_declares_api_key_security_for_protected_routes():
     assert schema["components"]["securitySchemes"]["APIKeyHeader"]["name"] == "X-API-Key"
     assert schema["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
     protected_paths = (
-        "/api/v1/analyze/url",
-        "/api/v1/analyze/message",
         "/api/v1/reports/{report_id}",
         "/api/v1/dashboard/summary",
         "/api/v1/threats",
         "/api/v1/threat-reports",
         "/api/v1/threat-reports/{report_id}",
         "/api/v1/blockchain/register",
-        "/api/v1/blockchain/verify/{report_id}",
     )
     for path in protected_paths:
         operations = schema["paths"][path]
@@ -508,6 +603,10 @@ def test_openapi_declares_api_key_security_for_protected_routes():
             if isinstance(operation, dict) and "responses" in operation:
                 assert {"APIKeyHeader": []} in operation["security"]
                 assert {"HTTPBearer": []} in operation["security"]
+    for path in ("/api/v1/analyze/url", "/api/v1/analyze/message", "/api/v1/blockchain/verify/{report_id}"):
+        for operation in app.openapi()["paths"][path].values():
+            if isinstance(operation, dict) and "responses" in operation:
+                assert "security" not in operation
 
 
 def test_typed_blockchain_response_schemas_are_in_openapi():

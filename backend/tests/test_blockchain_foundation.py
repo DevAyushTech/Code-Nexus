@@ -21,6 +21,10 @@ def test_protected_demo_accepts_non_empty_api_key():
     assert config.api_auth_mode == "protected_demo"
 
 
+def test_public_demo_mode_defaults_off():
+    assert Settings().public_demo_mode is False
+
+
 def test_sepolia_requires_complete_configuration():
     with pytest.raises(ValidationError):
         Settings(blockchain_mode="sepolia")

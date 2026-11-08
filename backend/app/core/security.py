@@ -109,6 +109,16 @@ def _authenticate(
         raise _unauthorized()
 
 
+def _authenticate_request(request: Request) -> None:
+    authorization = request.headers.get("Authorization")
+    bearer = None
+    if authorization is not None:
+        if not authorization.startswith("Bearer ") or not authorization[7:]:
+            raise _unauthorized()
+        bearer = HTTPAuthorizationCredentials(scheme="Bearer", credentials=authorization[7:])
+    _authenticate(request, request.headers.get("X-API-Key"), bearer)
+
+
 def _guard(
     request: Request,
     bucket: str,
@@ -119,6 +129,29 @@ def _guard(
     _authenticate(request, supplied, bearer)
     client = request.client.host if request.client else "unknown"
     limiter.check(f"{bucket}:{client}", limit, settings.rate_limit_window_seconds)
+
+
+def _public_demo_guard(request: Request, bucket: str, limit: int) -> None:
+    if (
+        not settings.public_demo_mode
+        or request.headers.get("Authorization") is not None
+        or request.headers.get("X-API-Key") is not None
+    ):
+        _authenticate_request(request)
+    client = request.client.host if request.client else "unknown"
+    limiter.check(f"{bucket}:{client}", limit, settings.rate_limit_window_seconds)
+
+
+def public_url_analysis_guard(request: Request) -> None:
+    _public_demo_guard(request, "url-analysis", settings.url_analysis_rate_limit)
+
+
+def public_message_analysis_guard(request: Request) -> None:
+    _public_demo_guard(request, "message-analysis", settings.message_analysis_rate_limit)
+
+
+def public_blockchain_verify_guard(request: Request) -> None:
+    _public_demo_guard(request, "blockchain-verify", settings.blockchain_verify_rate_limit)
 
 
 def url_analysis_guard(

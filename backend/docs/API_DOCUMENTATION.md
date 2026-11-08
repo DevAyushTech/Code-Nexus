@@ -4,9 +4,11 @@ The canonical field-level frontend contract is [FRONTEND_INTEGRATION.md](FRONTEN
 
 Base URL: `http://localhost:8000`.
 
-Protected endpoints accept either a Supabase Auth access token or the existing shared API key. Obtain an access token after email sign-up/login with Supabase Auth, then send `Authorization: Bearer <access_token>`. JWTs are verified against the configured Supabase JWKS and must use ES256 with the configured issuer and `authenticated` audience. The legacy `X-API-Key` remains supported during migration. Invalid bearer tokens return `401` and are never replaced by API-key authentication.
+Public Demo Mode is enabled explicitly with `PUBLIC_DEMO_MODE=true`. In that mode, health, URL analysis, message analysis, and read-only blockchain verification are accessible without credentials. Rate limits, validation, SSRF protections, CORS, and blockchain verification remain active.
 
-Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. In protected demo mode, either credential is required. `API_AUTH_MODE=demo` is intended only for local development and permits requests without credentials. Configured per-client limits return `429`.
+Reports, dashboard summaries, threat feeds, threat-report operations, and blockchain registration remain private even when Public Demo Mode is enabled. They accept either a Supabase Auth access token or the existing shared API key. Obtain an access token after email sign-up/login with Supabase Auth, then send `Authorization: Bearer <access_token>`. JWTs are verified against the configured Supabase JWKS and must use ES256 with the configured issuer and `authenticated` audience. The legacy `X-API-Key` remains supported during migration. Invalid bearer tokens return `401` and are never replaced by API-key authentication.
+
+Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposing the backend to the frontend. This keeps private endpoints protected while Public Demo Mode exposes only the explicitly selected demo routes. `API_AUTH_MODE=demo` is intended only for local development. Configured per-client limits return `429`.
 
 - `GET /health` returns service status.
 - `GET /health/ready` checks database readiness and returns `503` if the database is unavailable.
@@ -19,17 +21,22 @@ Set `API_AUTH_MODE=protected_demo` and a non-empty `API_AUTH_KEY` before exposin
 - `POST /api/v1/blockchain/register` accepts `{"report_id":"..."}` and creates a local cryptographic commitment in mock mode. In explicit Sepolia mode it submits the commitment to the configured deployed contract and returns receipt metadata only after a successful receipt.
 - `GET /api/v1/blockchain/verify/{report_id}` returns local commitment status in mock mode, or queries `verifyThreat` on the configured Sepolia contract.
 
-Protected endpoints:
+Public Demo Mode endpoints:
 
+- `GET /health`
+- `GET /health/ready`
 - `POST /api/v1/analyze/url`
 - `POST /api/v1/analyze/message`
+- `GET /api/v1/blockchain/verify/{id}`
+
+Protected endpoints:
+
 - `GET /api/v1/reports/{id}`
 - `GET /api/v1/dashboard/summary`
 - `GET /api/v1/threats`
 - `POST /api/v1/threat-reports`
 - `GET /api/v1/threat-reports/{id}`
 - `POST /api/v1/blockchain/register`
-- `GET /api/v1/blockchain/verify/{id}`
 
 Example:
 

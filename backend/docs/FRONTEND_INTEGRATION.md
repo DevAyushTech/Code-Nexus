@@ -10,13 +10,21 @@ Run the backend from `backend`:
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Local development normally uses the existing SQLite URL. A protected deployment must use `API_AUTH_MODE=protected_demo`. Supabase Auth handles email sign-up/login and supplies the access token; the backend verifies it locally using the project's public JWKS. The legacy API key remains available for compatibility.
+Local development normally uses the existing SQLite URL. For a judge-facing deployment, set `API_AUTH_MODE=protected_demo`, keep a non-empty `API_AUTH_KEY`, and explicitly set `PUBLIC_DEMO_MODE=true`. Public Demo Mode exposes only health, analysis, and read-only blockchain verification; reports, dashboards, threats, threat reports, and blockchain registration remain protected. Supabase Auth handles email sign-up/login for private routes; the backend verifies tokens locally using the project's public JWKS. The legacy API key remains available for compatibility.
 
 The configured frontend origin must be present in `CORS_ORIGINS`. The backend allows `GET`, `POST`, and the `Content-Type`, `Authorization`, and `X-API-Key` request headers. CORS credentials are disabled.
 
 ## Authentication
 
-After signing up or logging in with Supabase Auth, send the returned access token to protected routes:
+Public Demo Mode routes do not require a login:
+
+- `GET /health`
+- `GET /health/ready`
+- `POST /api/v1/analyze/url`
+- `POST /api/v1/analyze/message`
+- `GET /api/v1/blockchain/verify/{report_id}`
+
+After signing up or logging in with Supabase Auth, send the returned access token to private routes:
 
 ```http
 Authorization: Bearer <supabase-access-token>
