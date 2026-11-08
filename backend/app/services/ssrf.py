@@ -59,7 +59,10 @@ def resolve_public_url(url: str) -> ResolvedURL:
         addresses = [ipaddress.ip_address(host)]
     except ValueError:
         try:
-            addresses = list({ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)})
+            addresses = sorted(
+                {ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)},
+                key=lambda address: (address.version != 4, int(address)),
+            )
         except socket.gaierror as exc:
             raise UnsafeURL("Hostname could not be resolved.") from exc
     if not addresses or any(not _is_public(address) for address in addresses):
