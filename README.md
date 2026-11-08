@@ -1,13 +1,11 @@
-# Nexus
+# Nexus — Cybersecurity & Threat Intelligence
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-supported-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Ethereum Sepolia](https://img.shields.io/badge/Ethereum-Sepolia-627EEA?logo=ethereum&logoColor=white)](https://ethereum.org/en/developers/docs/networks/)
 
-Nexus is an evidence-backed threat-intelligence backend that analyzes URLs and messages, stores structured reports, and supports read-only verification of report integrity commitments on Ethereum Sepolia.
-
-## Table of Contents
+## README Sections
 
 1. [01. Project Name and One-Line Description](#01-project-name-and-one-line-description)
 2. [02. Problem](#02-problem)
@@ -19,159 +17,155 @@ Nexus is an evidence-backed threat-intelligence backend that analyzes URLs and m
 8. [08. Disclosures](#08-disclosures)
 9. [09. Track](#09-track)
 
+---
+
 ## 01. Project Name and One-Line Description
 
-**Nexus — evidence-backed URL and message threat analysis with verifiable report integrity.**
+### Nexus
+**An evidence-backed threat intelligence platform that analyzes suspicious URLs and messages, explains risk, and supports verifiable report integrity using blockchain.**
 
-Nexus is designed to make threat-analysis results easier to inspect: deterministic findings, TLS and website observations, optional external threat-intelligence evidence, risk classification, and persisted report identifiers are returned through a documented FastAPI API. A report can also be checked against an existing commitment recorded by the Nexus threat registry on Sepolia.
+Nexus helps users and security teams make better-informed decisions by bringing URL inspection, suspicious-message analysis, threat-intelligence signals, risk scoring, and report verification into one platform. It produces structured findings with evidence and clear provider statuses instead of presenting an unexplained safe/unsafe label.
 
-This repository contains the backend and the supporting smart-contract development workspace. No frontend application source is tracked in this repository.
+The live demo consists of a web frontend and a FastAPI backend. The backend and supporting smart-contract workspace are maintained in this repository.
 
 ## 02. Problem
 
-Online threat signals are difficult to interpret when URL behavior, message content, certificate details, passive website observations, and provider results are separated across different tools. A provider returning no match is also easy to confuse with proof that an indicator is safe, while an unavailable provider can be mistaken for a clean result.
+People encounter phishing links, fraudulent messages, impersonation attempts, and suspicious websites every day. Checking these threats often requires switching between disconnected tools. Results can be difficult to interpret, and a missing threat-intelligence match is easily mistaken for proof that something is safe.
 
-Nexus addresses this specific problem by returning findings with evidence, source, explanations, recommendations, and confidence, alongside explicit provider states. Persisted reports provide a stable record for retrieval, while a cryptographic commitment can provide integrity evidence that is independent of the database copy.
+There is also a trust problem: after an analysis is generated, users need a way to check whether a stored report has been altered. A conventional database record alone does not provide independent, tamper-evident proof of its integrity.
 
-Nexus does not determine the truth of every report or replace analyst judgment. It is a structured decision-support service for the implemented checks and integrations.
+Nexus focuses on these gaps:
+- Threat signals are scattered across different tools and providers.
+- Users may not understand why a URL or message is considered suspicious.
+- Provider outages and unavailable data can lead to misleading conclusions.
+- Report integrity needs to be verifiable without publishing sensitive URLs or message contents on-chain.
 
 ## 03. Solution
 
-### Implemented
+Nexus provides a unified threat-analysis workflow with explainable findings and a blockchain-backed integrity layer.
 
-- **URL analysis:** validates HTTP(S) input, rejects unsafe destinations, performs DNS/SSRF checks, validates TLS, performs bounded passive website inspection, and produces deterministic findings.
-- **Message analysis:** identifies supported urgency, payment, credential-harvesting, suspicious-link, and possible-impersonation patterns.
-- **Threat intelligence:** integrates URLhaus and Google Safe Browsing when configured. Results distinguish matches, successful no-match responses, unavailable providers, rate limits, errors, and inconclusive results.
-- **Risk classification:** produces a bounded risk score and classifications including `LOW`, `SUSPICIOUS`, `HIGH`, `CONFIRMED_MALICIOUS`, and `INCONCLUSIVE`.
-- **Reports:** persists analysis reports and returns report IDs for later retrieval. New URL query values and message contents are redacted from report responses and persistence paths.
-- **Threat feed and dashboard:** provides dashboard classification counts, paginated threat reports, and optional threat-report type filtering.
-- **Blockchain integrity:** computes the canonical report commitment from report metadata and supports read-only Sepolia verification of the existing commitment and transaction evidence.
+### Core capabilities
 
-### Optional or operationally restricted
+- **URL threat analysis:** validates HTTP(S) URLs, applies DNS and SSRF protections, checks TLS, and performs bounded passive website inspection.
+- **Message threat analysis:** detects supported phishing patterns such as urgency manipulation, credential harvesting language, suspicious links, payment pressure, and possible impersonation.
+- **Threat-intelligence signals:** integrates URLhaus and Google Safe Browsing when credentials are configured. Provider outcomes distinguish matches, no-match responses, unavailable services, rate limits, and errors.
+- **Risk scoring:** returns a score and a classification such as `LOW`, `SUSPICIOUS`, `HIGH`, `CONFIRMED_MALICIOUS`, or `INCONCLUSIVE`.
+- **Evidence-backed reports:** returns structured findings, explanations, recommendations, and report identifiers.
+- **Report persistence:** stores report data off-chain in the configured database.
+- **Blockchain integrity verification:** supports read-only verification of a report hash commitment and its transaction evidence on Ethereum Sepolia.
+- **Public demo access:** selected analysis and verification endpoints can be exposed for the public demo, while sensitive dashboard, report retrieval, and blockchain registration operations remain protected by backend configuration.
 
-- Advisory AI analysis is disabled by default and is not authoritative.
-- Blockchain registration is an authenticated backend operation; it is not a frontend signing flow and must not be invoked automatically.
-- Mock blockchain mode is available for local tests and explicitly does not represent Ethereum state.
+### What makes Nexus different
+
+Nexus does not simply return a risk label. It shows the signals behind the result and communicates when evidence is missing or a provider could not be reached. Blockchain is used for report-integrity evidence—not as a source of threat intelligence and not as proof that an analysis is factually correct.
 
 ## 04. Demo Links and a Screenshot
 
 | Resource | Link |
 |---|---|
-| Live backend | [https://code-nexus-3ocs.onrender.com/](https://code-nexus-3ocs.onrender.com/) |
-| API documentation | [https://code-nexus-3ocs.onrender.com/docs](https://code-nexus-3ocs.onrender.com/docs) |
-| Health | [https://code-nexus-3ocs.onrender.com/health](https://code-nexus-3ocs.onrender.com/health) |
-| Readiness | [https://code-nexus-3ocs.onrender.com/health/ready](https://code-nexus-3ocs.onrender.com/health/ready) |
+| **Live frontend demo** | [https://code-nexus-five.vercel.app/](https://code-nexus-five.vercel.app/) |
+| **Live backend** | [https://code-nexus-3ocs.onrender.com/](https://code-nexus-3ocs.onrender.com/) |
+| **API documentation (Swagger)** | [https://code-nexus-3ocs.onrender.com/docs](https://code-nexus-3ocs.onrender.com/docs) |
+| Backend health | [https://code-nexus-3ocs.onrender.com/health](https://code-nexus-3ocs.onrender.com/health) |
+| Backend readiness | [https://code-nexus-3ocs.onrender.com/health/ready](https://code-nexus-3ocs.onrender.com/health/ready) |
 | GitHub repository | [https://github.com/DevAyushTech/Code-Nexus](https://github.com/DevAyushTech/Code-Nexus) |
 
-**Frontend demo URL:** Not verified. No frontend application or frontend deployment URL is documented in this repository.
+### Demo walkthrough
 
-### Screenshot
+1. Open the frontend and navigate to **Threat Console**.
+2. Submit a URL for analysis.
+3. Review the risk score, classification, findings, and available integration results.
+4. Switch to message analysis and submit a suspicious message for inspection.
+5. Use the report's verification option to check its blockchain commitment where a commitment has already been registered.
 
-No screenshot asset was found in the repository. Add a real project screenshot at `docs/images/nexus-demo.png` and replace this note with:
+**Screenshot:** Add an authentic screenshot of the deployed Threat Console/report view at `docs/images/nexus-demo.png`. Once added, display it here using:
 
 ```markdown
-![Nexus demo screenshot](docs/images/nexus-demo.png)
+![Nexus Threat Console demo](docs/images/nexus-demo.png)
 ```
 
-Do not add a generated or unrelated image.
+No screenshot is embedded yet because a verified project screenshot has not been committed to this repository.
 
 ## 05. Tech Stack
 
-| Area | Technologies confirmed in the repository |
+| Layer | Technologies |
 |---|---|
-| Frontend | No frontend source is tracked; integration is documented through REST/OpenAPI handover materials. |
-| Backend | Python 3.11, FastAPI, Uvicorn, Pydantic Settings, HTTPX |
-| Persistence | SQLAlchemy 2, SQLite for local development, PostgreSQL with `psycopg`, Alembic |
-| Blockchain | Solidity `0.8.24`, Hardhat, ethers, OpenZeppelin contracts, Web3.py, Ethereum Sepolia |
-| Threat analysis | Deterministic URL/message analysis, DNS/SSRF protections, TLS inspection, passive website inspection |
-| Threat intelligence | URLhaus and Google Safe Browsing adapters |
-| Optional analysis | Configurable advisory AI integration through the implemented provider adapters |
-| Infrastructure | Docker, Docker Compose, PostgreSQL 16 Alpine image, Render deployment references |
+| Frontend | React, Vite, Tailwind CSS |
+| Backend API | Python 3.11+, FastAPI, Uvicorn, Pydantic Settings, HTTPX |
+| Database | PostgreSQL, SQLAlchemy 2, Alembic; SQLite for local development |
+| Threat analysis | Python analysis services, DNS/SSRF safeguards, TLS inspection, passive website inspection |
+| Threat intelligence | URLhaus, Google Safe Browsing (when configured) |
+| Blockchain | Solidity 0.8.24, Hardhat, ethers, OpenZeppelin, Web3.py |
+| Network | Ethereum Sepolia test network |
+| Deployment | Vercel (frontend), Render (backend), Docker |
 | Testing | pytest, pytest-asyncio, Hardhat/Mocha contract tests |
 
 ## 06. Architecture
 
-Nexus is a backend modular monolith. API routes coordinate validation, analysis services, persistence, provider evidence, and blockchain verification. The local database is SQLite; the Compose and staging deployment path uses PostgreSQL. The frontend integration contract is REST/OpenAPI-based, but the frontend itself is maintained outside this repository.
+Nexus uses a web frontend connected to a modular FastAPI backend through REST APIs. Analysis and report data remain off-chain in the configured database. The blockchain layer stores only a cryptographic commitment and associated registry metadata.
 
-### Analysis workflow
+### High-level workflow
 
-1. A protected API request reaches the FastAPI router with `X-API-Key`.
-2. URL or message input is validated.
-3. Analysis services generate deterministic findings and risk classification.
-4. URL analysis may query URLhaus, Google Safe Browsing, TLS inspection, and passive website inspection.
-5. The report and structured evidence are persisted off-chain.
-6. The API returns the report ID and response schema.
+1. A user submits a URL or message through the frontend.
+2. The frontend sends the request to the FastAPI backend.
+3. The backend validates the input and applies the relevant analysis services.
+4. URL analysis can perform DNS/SSRF checks, TLS inspection, passive website inspection, and configured provider lookups.
+5. Message analysis evaluates supported phishing and social-engineering indicators.
+6. The backend calculates a risk score, creates structured findings, and persists the report.
+7. The user receives the result and a report ID.
+8. Where a report commitment has been registered, the verification endpoint can check it against Ethereum Sepolia using read-only blockchain calls.
 
-### Blockchain workflow
-
-- Off-chain report metadata is stored in PostgreSQL or SQLite.
-- The canonical SHA-256 report commitment is derived from the report ID, target hash, classification, and risk score.
-- The corresponding commitment is stored by the deployed `ThreatRegistry` contract on Ethereum Sepolia.
-- Read-only verification recomputes the local commitment, calls `verifyThreat(bytes32)`, checks the existing receipt when available, and enforces confirmation depth.
-- Verification does not submit a transaction.
-
-The configured historical deployment is documented as chain ID `11155111` with contract address `0x0477964F49Ce37516dBFfFA3a16c8dDE73D58Bf4`. The contract stores a commitment, reporter, timestamp, and existence flag; it does not store raw URLs or messages.
+### Architecture diagram
 
 ```mermaid
-flowchart LR
-    Client[Frontend or API client] -->|X-API-Key REST requests| API[FastAPI app]
-    API --> Router[API v1 router]
-    Router --> URL[URL analysis]
-    Router --> Message[Message analysis]
-    URL --> SSRF[DNS / SSRF / TLS / passive inspection]
-    URL --> Providers[URLhaus / Safe Browsing]
-    Message --> Heuristics[Message heuristics]
-    URL --> DB[(PostgreSQL or SQLite)]
-    Message --> DB
-    Router --> Reports[Report retrieval / dashboard / feed]
-    Router --> Verify[Read-only verification]
-    Verify --> RPC[Sepolia RPC]
-    RPC --> Contract[ThreatRegistry on Sepolia]
-    Contract --> Commitment[On-chain report commitment]
+flowchart TD
+    U[User] --> FE[React + Vite Frontend]
+    FE --> API[FastAPI REST API]
+    API --> VAL[Input Validation and Security Controls]
+    VAL --> URL[URL Analysis]
+    VAL --> MSG[Message Analysis]
+    URL --> DNS[DNS / SSRF / TLS / Passive Inspection]
+    URL --> TI[URLhaus / Google Safe Browsing]
+    MSG --> HEUR[Phishing and Social Engineering Heuristics]
+    DNS --> SCORE[Evidence Aggregation and Risk Scoring]
+    TI --> SCORE
+    HEUR --> SCORE
+    SCORE --> DB[(PostgreSQL Database)]
+    DB --> REPORT[Structured Analysis Report]
+    REPORT --> FE
+    REPORT --> HASH[Canonical Report Hash]
+    HASH --> VERIFY[Read-only Verification Service]
+    VERIFY --> RPC[Ethereum Sepolia RPC]
+    RPC --> CONTRACT[ThreatRegistry Smart Contract]
 ```
 
-### Report verification sequence
+### On-chain and off-chain separation
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant A as FastAPI verification route
-    participant DB as PostgreSQL
-    participant W as Web3 adapter
-    participant R as Sepolia RPC
-    participant S as ThreatRegistry
+- **Off-chain:** report content, analysis findings, target/message data, and structured evidence are stored by the backend.
+- **On-chain:** the registry stores a cryptographic report commitment and registry metadata; raw URLs and message contents are not written to the contract.
+- **Verification:** the backend recomputes the report commitment and checks the existing Sepolia record and transaction evidence.
+- **Important:** verification demonstrates a match with the registered commitment. It does not prove that the report's original analysis was correct.
 
-    C->>A: GET /api/v1/blockchain/verify/{report_id}
-    A->>DB: Load AnalysisReport and BlockchainRecord
-    A->>A: Recompute canonical report hash
-    A->>W: verify_commitment(hash, tx_hash)
-    W->>R: eth_chainId and eth_getCode
-    W->>S: verifyThreat(bytes32)
-    S-->>W: exists, reporter, timestamp
-    W->>R: eth_getTransactionReceipt(tx_hash)
-    W->>R: Read current block for confirmations
-    R-->>W: Receipt and confirmation evidence
-    W-->>A: verified/status/result
-    A-->>C: Sanitized verification response
-```
+Configured historical Sepolia deployment: chain ID `11155111`; ThreatRegistry address `0x0477964F49Ce37516dBFfFA3a16c8dDE73D58Bf4`.
 
 ## 07. Setup and Run Steps
 
 ### Prerequisites
 
 - Python 3.11+
-- Node.js and npm for the Hardhat contract workspace
-- Docker Desktop only if using Docker Compose
-- PostgreSQL only if running outside the default local SQLite setup
+- Node.js and npm (for the smart-contract workspace)
+- Git
+- Docker Desktop (optional, for Docker Compose)
+- PostgreSQL (optional when using the default local SQLite configuration)
 
-### Clone the repository
+### 1. Clone the repository
 
 ```powershell
 git clone https://github.com/DevAyushTech/Code-Nexus.git
 cd Code-Nexus
 ```
 
-### Backend setup — Windows PowerShell
+### 2. Configure the backend
 
 ```powershell
 cd backend
@@ -181,58 +175,50 @@ py -3.11 -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Edit `.env` locally as needed. Never commit `.env`, API keys, RPC credentials, database URLs, or private keys. The safe template is [`backend/.env.example`](backend/.env.example).
+Edit `.env` locally if required. Never commit `.env`, API keys, database URLs, RPC credentials, or private keys.
 
-Local development defaults to SQLite:
+For local development, the default configuration can use SQLite. Review `backend/.env.example` for the current environment-variable names and safe defaults.
 
-```text
-DATABASE_URL=sqlite:///./nexus.db
-API_AUTH_MODE=demo
-```
+### 3. Run database migrations
 
-For a protected demo, use `API_AUTH_MODE=protected_demo` and provide a non-empty `API_AUTH_KEY` through the deployment environment. Configure the exact frontend origin in `CORS_ORIGINS`.
-
-### Database setup
-
-For a new database, run the migration command from `backend`:
+From the `backend` directory:
 
 ```powershell
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-The existing local database must not be reset or recreated. Back it up and verify its schema before any migration adoption work. Migrations are manual; the Dockerfile and application startup do not run them automatically.
+Run migrations only against a database whose target and backup you have confirmed. Do not reset or recreate an existing database.
 
-### Start the backend
+### 4. Start the backend
 
-Windows:
+From the `backend` directory:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Linux/macOS:
+Open:
+- API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Health: [http://localhost:8000/health](http://localhost:8000/health)
+- Readiness: [http://localhost:8000/health/ready](http://localhost:8000/health/ready)
 
-```bash
-python3.11 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+### 5. Run the frontend
 
-OpenAPI is available at [http://localhost:8000/docs](http://localhost:8000/docs). Public checks are:
-
-```text
-GET /health
-GET /health/ready
-```
-
-All `/api/v1` analysis, report, dashboard, feed, threat-report, and blockchain routes require `X-API-Key` when a key is configured.
-
-### Contract workspace
-
-From `backend`:
+The frontend source is maintained in the repository's `frontend` directory. In a second terminal:
 
 ```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Configure the frontend's backend API base URL using the environment-variable name expected by the frontend project. Do not put private backend API keys or server credentials in Vite client-side environment variables.
+
+### 6. Optional: contract workspace
+
+Use the contract workspace only when you intend to work on or test the smart contracts. From the directory containing its `package.json`:
+
+```bash
 npm install
 npm run compile
 npm run test:contracts
@@ -240,53 +226,42 @@ npm run export:abi
 npm run validate:deployment
 ```
 
-Contract deployment is manual and is not part of application startup or automated backend tests. Do not use a mainnet network or key. Do not run deployment commands unless you intend to perform a separate, approved blockchain operation.
+Contract deployment is a separate manual operation. It is not required to run the web application. Do not deploy to mainnet or expose private keys.
 
-### Docker Compose
+### 7. Optional: Docker Compose
 
-Docker Compose provides PostgreSQL and the API:
+Docker Compose can run the API and PostgreSQL services. Set required environment variables securely outside source control, then run:
 
 ```powershell
-$env:POSTGRES_PASSWORD = "<set outside source control>"
-$env:API_AUTH_KEY = "<set outside source control>"
 docker compose up --build
 ```
 
-Compose requires external credentials and waits for PostgreSQL health. For a fresh disposable Compose database only:
-
-```powershell
-docker compose run --rm api python -m alembic upgrade head
-```
-
-Do not run this against the existing local database or an unknown production database. The API container starts with `uvicorn app.main:app`; it does not migrate automatically.
+For a new, disposable database only, apply migrations using the documented backend migration command. Do not run migration or reset commands against an unknown or existing production database.
 
 ### Troubleshooting
 
-| Symptom | Check |
+| Issue | What to check |
 |---|---|
-| `401` on an API route | Confirm protected-demo mode and send the configured `X-API-Key` through a trusted server-side boundary. |
-| Readiness returns `503` | Check `DATABASE_URL`, database availability, and migration state. |
-| Provider is `not_configured` or `unavailable` | Check the provider configuration and remember that provider failure is not a clean verdict. |
-| Blockchain verification is `rpc_unavailable` | Check Web3 dependency packaging, ABI packaging, Sepolia RPC reachability, chain ID, and contract address. Verification is read-only. |
-| CORS failure | Add the exact frontend origin to `CORS_ORIGINS`; do not use a wildcard with a secret API key architecture. |
+| API returns `401` | Check the configured authentication mode and whether the route is public or protected. Never expose a private API key in browser code. |
+| Readiness returns `503` | Check database connectivity, `DATABASE_URL`, and migration state. |
+| Provider is `not_configured` or `unavailable` | Check provider configuration and remember that missing provider evidence is not proof of safety. |
+| Blockchain verification is unavailable | Check Web3 packaging, ABI availability, Sepolia RPC reachability, chain ID, and contract address. |
+| Browser reports a CORS error | Add the exact frontend origin to the backend's `CORS_ORIGINS` configuration. |
 
 ## 08. Disclosures
 
-- Nexus is a security decision-support tool, not a guarantee that a URL or message is safe.
-- A provider no-match means that provider returned no match; it is not proof of safety.
-- Provider APIs can have limited coverage, outages, rate limits, quotas, or configuration requirements.
-- `INCONCLUSIVE`, `not_configured`, `unavailable`, `rate_limited`, `error`, and similar states mean that evidence is incomplete or unavailable.
-- Optional AI output is advisory and may be incomplete or incorrect. It is not the authoritative risk decision.
-- Blockchain verification proves that a particular report hash and transaction evidence match the on-chain commitment. It does not prove that the original report was truthful.
-- Sepolia is an Ethereum test network, not Ethereum mainnet.
-- The current authentication model is a shared demo/admin API key, not multi-user authentication or RBAC.
-- The rate limiter is process-local and intended for a single-worker demo; multiple workers or instances do not share counters.
-- PostgreSQL compatibility, Docker execution, and frontend integration require validation in the target deployment environment. Do not infer them from mocked tests alone.
-- Live provider checks have limited scope; mocked provider tests do not prove continuous external availability.
-- No frontend source or verified frontend demo URL is included in this repository.
-
-Use the system only with authorized inputs. Do not submit private data, credentials, or raw sensitive content to external providers or the blockchain.
+- Nexus is a decision-support and threat-analysis tool. It does not guarantee that a URL, website, or message is safe.
+- A provider returning no match is not proof that an indicator is harmless.
+- Provider coverage is limited and can be affected by outages, quotas, rate limits, and configuration.
+- States such as `INCONCLUSIVE`, `not_configured`, `unavailable`, `rate_limited`, and `error` indicate incomplete or unavailable evidence.
+- Optional AI output is advisory and may be incomplete or incorrect; it is not the authoritative risk decision.
+- Blockchain verification checks report-hash integrity against an existing on-chain commitment. It does not establish the truthfulness or accuracy of the report.
+- Ethereum Sepolia is a test network, not Ethereum mainnet.
+- Public demo mode exposes only selected endpoints. Sensitive report retrieval, dashboard/feed operations, and blockchain registration are intended to remain protected by backend configuration.
+- The current demo authentication controls should not be represented as a complete multi-user identity, authorization, or RBAC system.
+- The live demo and external provider integrations depend on third-party availability and deployment configuration.
+- Use only URLs and messages you are authorized to analyze. Avoid submitting personal data, credentials, or confidential content to external providers.
 
 ## 09. Track
 
-Track: To be confirmed by the project team
+**Cybersecurity, Threat Intelligence & Digital Trust Infrastructure**
